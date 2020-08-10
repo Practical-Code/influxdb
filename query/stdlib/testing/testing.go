@@ -51,6 +51,7 @@ var FluxEndToEndSkipList = map[string]map[string]string{
 		"integral_columns":    "unbounded test",
 		"map":                 "unbounded test",
 		"join_missing_on_col": "unbounded test",
+		"join_use_previous":   "unbounded test (https://github.com/influxdata/flux/issues/2996)",
 		"rowfn_with_import":   "unbounded test",
 
 		// the following tests have a difference between the CSV-decoded input table, and the storage-retrieved version of that table
@@ -134,7 +135,8 @@ var FluxEndToEndSkipList = map[string]map[string]string{
 		"join": "unbounded test",
 	},
 	"testing/chronograf": {
-		"buckets": "unbounded test",
+		"buckets":                "unbounded test",
+		"aggregate_window_count": "flakey test: https://github.com/influxdata/influxdb/issues/18463",
 	},
 	"testing/kapacitor": {
 		"fill_default": "unknown field type for f1",
@@ -146,5 +148,21 @@ var FluxEndToEndSkipList = map[string]map[string]string{
 	"testing/promql": {
 		"emptyTable": "tests a source",
 		"year":       "flakey test: https://github.com/influxdata/influxdb/issues/15667",
+	},
+}
+
+type PerTestFeatureFlagMap = map[string]map[string]map[string]string
+
+var FluxEndToEndFeatureFlags = PerTestFeatureFlagMap{
+	"planner": {
+		"bare_mean_push": {
+			"pushDownWindowAggregateMean": "true",
+		},
+		"window_mean_push": {
+			"pushDownWindowAggregateMean": "true",
+		},
+		"merge_filters": {
+			"mergeFilterRule": "true",
+		},
 	},
 }

@@ -72,6 +72,8 @@ type GroupCursor interface {
 	Err() error
 
 	Stats() cursors.CursorStats
+
+	Aggregate() *datatypes.Aggregate
 }
 
 type Store interface {
@@ -82,6 +84,14 @@ type Store interface {
 	TagValues(ctx context.Context, req *datatypes.TagValuesRequest) (cursors.StringIterator, error)
 
 	GetSource(orgID, bucketID uint64) proto.Message
+}
+
+type GroupCapability interface {
+	query.GroupCapability
+}
+
+type GroupStore interface {
+	GetGroupCapability(ctx context.Context) GroupCapability
 }
 
 // WindowAggregateCapability describes what is supported by WindowAggregateStore.

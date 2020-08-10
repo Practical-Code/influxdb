@@ -14,7 +14,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/influxdata/influxdb/v2"
 	"github.com/influxdata/influxdb/v2/dbrp"
-	"github.com/influxdata/influxdb/v2/inmem"
 	"github.com/influxdata/influxdb/v2/mock"
 	influxdbtesting "github.com/influxdata/influxdb/v2/testing"
 	"go.uber.org/zap/zaptest"
@@ -24,15 +23,28 @@ func initHttpService(t *testing.T) (influxdb.DBRPMappingServiceV2, *httptest.Ser
 	t.Helper()
 	ctx := context.Background()
 	bucketSvc := mock.NewBucketService()
+	orgSvc := &mock.OrganizationService{
+		FindOrganizationF: func(ctx context.Context, filter influxdb.OrganizationFilter) (*influxdb.Organization, error) {
+			if filter.Name == nil || *filter.Name != "org" {
+				return nil, errors.New("not found")
+			}
+			return &influxdb.Organization{
+				Name: "org",
+				ID:   influxdbtesting.MustIDBase16("059af7ed2a034000"),
+			}, nil
+		},
+	}
 
-	s := inmem.NewKVStore()
-	svc, err := dbrp.NewService(ctx, bucketSvc, s)
+	s, closeS, err := NewTestBoltStore(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	server := httptest.NewServer(dbrp.NewHTTPHandler(zaptest.NewLogger(t), svc))
+	svc := dbrp.NewService(ctx, bucketSvc, s)
+
+	server := httptest.NewServer(dbrp.NewHTTPHandler(zaptest.NewLogger(t), svc, orgSvc))
 	return svc, server, func() {
+		closeS()
 		server.Close()
 	}
 }
@@ -58,6 +70,19 @@ func Test_handlePostDBRP(t *testing.T) {
 			},
 		},
 		{
+			Name: "Create valid dbrp by org name",
+			Input: strings.NewReader(`{
+	"bucket_id": "5555f7ed2a035555",
+	"organization": "org",
+	"database": "mydb",
+	"retention_policy": "autogen",
+	"default": false
+}`),
+			ExpectedDBRP: &influxdb.DBRPMappingV2{
+				OrganizationID: influxdbtesting.MustIDBase16("059af7ed2a034000"),
+			},
+		},
+		{
 			Name: "Create with invalid orgID",
 			Input: strings.NewReader(`{
 	"bucket_id": "5555f7ed2a035555",
@@ -71,6 +96,17 @@ func Test_handlePostDBRP(t *testing.T) {
 				Msg:  "invalid json structure",
 				Err:  influxdb.ErrInvalidID.Err,
 			},
+		},
+		{
+			Name: "Create with invalid org name",
+			Input: strings.NewReader(`{
+	"bucket_id": "5555f7ed2a035555",
+	"organization": "invalid",
+	"database": "mydb",
+	"retention_policy": "autogen",
+	"default": false
+}`),
+			ExpectedErr: influxdb.ErrOrgNotFound,
 		},
 	}
 
@@ -106,13 +142,16 @@ func Test_handlePostDBRP(t *testing.T) {
 			}
 
 			if !dbrp.ID.Valid() {
-				t.Fatalf("expected invalid id, got an invalid one %s", dbrp.ID.String())
+				t.Fatalf("expected valid id, got an invalid one %s", dbrp.ID.String())
 			}
 
 			if dbrp.OrganizationID != tt.ExpectedDBRP.OrganizationID {
 				t.Fatalf("expected orgid %s got %s", tt.ExpectedDBRP.OrganizationID, dbrp.OrganizationID)
 			}
 
+			if !dbrp.Default {
+				t.Fatalf("expected dbrp to be marked as default")
+			}
 		})
 	}
 }
@@ -175,6 +214,20 @@ func Test_handleGetDBRPs(t *testing.T) {
 		{
 			Name:        "all match",
 			QueryParams: "orgID=059af7ed2a034000&default=true&rp=autogen&db=mydb&bucketID=5555f7ed2a035555&id=1111111111111111",
+			ExpectedDBRPs: []influxdb.DBRPMappingV2{
+				{
+					ID:              influxdbtesting.MustIDBase16("1111111111111111"),
+					BucketID:        influxdbtesting.MustIDBase16("5555f7ed2a035555"),
+					OrganizationID:  influxdbtesting.MustIDBase16("059af7ed2a034000"),
+					Database:        "mydb",
+					RetentionPolicy: "autogen",
+					Default:         true,
+				},
+			},
+		},
+		{
+			Name:        "org name",
+			QueryParams: "org=org",
 			ExpectedDBRPs: []influxdb.DBRPMappingV2{
 				{
 					ID:              influxdbtesting.MustIDBase16("1111111111111111"),
@@ -259,6 +312,22 @@ func Test_handlePatchDBRP(t *testing.T) {
 		{
 			Name:      "happy path update",
 			URLSuffix: "/1111111111111111?orgID=059af7ed2a034000",
+			Input: strings.NewReader(`{
+	"retention_policy": "updaterp",
+	"database": "wont_change"
+}`),
+			ExpectedDBRP: &influxdb.DBRPMappingV2{
+				ID:              influxdbtesting.MustIDBase16("1111111111111111"),
+				BucketID:        influxdbtesting.MustIDBase16("5555f7ed2a035555"),
+				OrganizationID:  influxdbtesting.MustIDBase16("059af7ed2a034000"),
+				Database:        "mydb",
+				RetentionPolicy: "updaterp",
+				Default:         true,
+			},
+		},
+		{
+			Name:      "happy path update by org name",
+			URLSuffix: "/1111111111111111?org=org",
 			Input: strings.NewReader(`{
 	"retention_policy": "updaterp",
 	"database": "wont_change"
@@ -369,12 +438,21 @@ func Test_handleDeleteDBRP(t *testing.T) {
 			URLSuffix: "/1111111111111111?orgID=059af7ed2a034000",
 		},
 		{
+			Name:      "delete by org name",
+			URLSuffix: "/1111111111111111?org=org",
+		},
+		{
 			Name:      "invalid org",
 			URLSuffix: "/1111111111111111?orgID=invalid",
 			ExpectedErr: &influxdb.Error{
 				Code: influxdb.EInvalid,
 				Msg:  "invalid ID",
 			},
+		},
+		{
+			Name:        "invalid org name",
+			URLSuffix:   "/1111111111111111?org=invalid",
+			ExpectedErr: influxdb.ErrOrgNotFound,
 		},
 		{
 			Name:        "no org",

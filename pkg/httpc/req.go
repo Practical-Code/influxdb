@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/influxdata/influxdb/v2"
+	"github.com/influxdata/influxdb/v2/kit/tracing"
 )
 
 const (
@@ -24,7 +25,7 @@ type Req struct {
 	client doer
 
 	req    *http.Request
-	authFn func(*http.Request)
+	authFn func(*http.Request) error
 
 	decodeFn func(*http.Response) error
 	respFn   func(*http.Response) error
@@ -36,6 +37,15 @@ type Req struct {
 // Accept sets the Accept header to the provided content type on the request.
 func (r *Req) Accept(contentType string) *Req {
 	return r.Header("Accept", contentType)
+}
+
+// Auth sets the authorization for a request.
+func (r *Req) Auth(authFn func(r *http.Request) error) *Req {
+	if r.err != nil {
+		return r
+	}
+	r.authFn = authFn
+	return r
 }
 
 // ContentType sets the Content-Type header to the provided content type on the request.
@@ -129,12 +139,29 @@ func (r *Req) Do(ctx context.Context) error {
 	if r.err != nil {
 		return r.err
 	}
-	r.authFn(r.req)
+
+	if err := r.authFn(r.req); err != nil {
+		return err
+	}
+
 	// TODO(@jsteenb2): wrap do with retry/backoff policy.
 	return r.do(ctx)
 }
 
 func (r *Req) do(ctx context.Context) error {
+	span, ctx := tracing.StartSpanFromContextWithOperationName(ctx, r.req.URL.String())
+	defer span.Finish()
+
+	u := r.req.URL
+	span.LogKV(
+		"scheme", u.Scheme,
+		"host", u.Host,
+		"path", u.Path,
+		"query_params", u.Query().Encode(),
+	)
+
+	tracing.InjectToHTTPRequest(span, r.req)
+
 	resp, err := r.client.Do(r.req.WithContext(ctx))
 	if err != nil {
 		return err
@@ -143,6 +170,11 @@ func (r *Req) do(ctx context.Context) error {
 		io.Copy(ioutil.Discard, resp.Body) // drain body completely
 		resp.Body.Close()
 	}()
+
+	span.LogKV(
+		"response_code", resp.StatusCode,
+		"response_byte", resp.ContentLength,
+	)
 
 	if r.respFn != nil {
 		if err := r.respFn(resp); err != nil {

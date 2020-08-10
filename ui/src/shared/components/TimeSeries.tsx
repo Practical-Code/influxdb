@@ -1,8 +1,8 @@
 // Library
 import React, {Component, RefObject, CSSProperties} from 'react'
 import {isEqual} from 'lodash'
-import {connect} from 'react-redux'
-import {withRouter, WithRouterProps} from 'react-router'
+import {connect, ConnectedProps} from 'react-redux'
+import {withRouter, RouteComponentProps} from 'react-router-dom'
 import {
   default as fromFlux,
   FromFluxResult,
@@ -11,15 +11,15 @@ import {fromFlux as fromFluxGiraffe} from '@influxdata/giraffe'
 import {isFlagEnabled} from 'src/shared/utils/featureFlag'
 
 // API
-import {
-  runQuery,
-  RunQueryResult,
-  RunQuerySuccessResult,
-} from 'src/shared/apis/query'
+import {RunQueryResult, RunQuerySuccessResult} from 'src/shared/apis/query'
 import {runStatusesQuery} from 'src/alerting/utils/statusEvents'
+import {getCachedResultsThunk} from 'src/shared/apis/queryCache'
 
 // Utils
-import {getTimeRange} from 'src/dashboards/selectors'
+import {
+  getTimeRangeWithTimezone,
+  isCurrentPageDashboard as isCurrentPageDashboardSelector,
+} from 'src/dashboards/selectors'
 import {getVariables, asAssignment} from 'src/variables/selectors'
 import {getRangeVariable} from 'src/variables/utils/getTimeRangeVars'
 import {isInQuery} from 'src/variables/utils/hydrateVars'
@@ -32,6 +32,8 @@ import {
   isDemoDataAvailabilityError,
   demoDataError,
 } from 'src/cloud/utils/demoDataErrors'
+import {hashCode} from 'src/shared/apis/queryCache'
+import {RunQueryPromiseMutex} from 'src/shared/apis/singleQuery'
 
 // Constants
 import {
@@ -41,8 +43,10 @@ import {
 } from 'src/shared/copy/notifications'
 import {TIME_RANGE_START, TIME_RANGE_STOP} from 'src/variables/constants'
 
-// Actions
+// Actions & Selectors
 import {notify as notifyAction} from 'src/shared/actions/notifications'
+import {hasUpdatedTimeRangeInVEO} from 'src/shared/selectors/app'
+import {setCellMount as setCellMountAction} from 'src/perf/actions'
 
 // Types
 import {
@@ -52,11 +56,10 @@ import {
   Bucket,
   ResourceType,
   DashboardQuery,
-  Variable,
-  VariableAssignment,
   AppState,
   CancelBox,
 } from 'src/types'
+import {event} from 'src/cloud/utils/reporting'
 
 interface QueriesState {
   files: string[] | null
@@ -68,28 +71,19 @@ interface QueriesState {
   statuses: StatusRow[][]
 }
 
-interface StateProps {
-  queryLink: string
-  buckets: Bucket[]
-  variables: Variable[]
-}
-
 interface OwnProps {
-  className: string
-  style: CSSProperties
+  cellID?: string
+  className?: string
+  style?: CSSProperties
   queries: DashboardQuery[]
-  variables?: VariableAssignment[]
   submitToken: number
   implicitSubmit?: boolean
   children: (r: QueriesState) => JSX.Element
-  check: Partial<Check>
+  check?: Partial<Check>
 }
 
-interface DispatchProps {
-  notify: typeof notifyAction
-}
-
-type Props = StateProps & OwnProps & DispatchProps
+type ReduxProps = ConnectedProps<typeof connector>
+type Props = OwnProps & ReduxProps & RouteComponentProps<{orgID: string}>
 
 interface State {
   loading: RemoteDataState
@@ -111,14 +105,19 @@ const defaultState = (): State => ({
   statuses: [[]],
 })
 
-class TimeSeries extends Component<Props & WithRouterProps, State> {
+type HashMapMutex = {
+  [queryID: string]: ReturnType<typeof RunQueryPromiseMutex>
+}
+
+class TimeSeries extends Component<Props, State> {
   public static defaultProps = {
     implicitSubmit: true,
     className: 'time-series-container',
     style: null,
   }
-
   public state: State = defaultState()
+
+  private hashMapMutex: HashMapMutex = {}
 
   private observer: IntersectionObserver
   private ref: RefObject<HTMLDivElement> = React.createRef()
@@ -129,11 +128,19 @@ class TimeSeries extends Component<Props & WithRouterProps, State> {
   private pendingCheckStatuses: CancelBox<StatusRow[][]> = null
 
   public componentDidMount() {
+    const {cellID, setCellMount} = this.props
     this.observer = new IntersectionObserver(entries => {
       entries.forEach(entry => {
         const {isIntersecting} = entry
-        if (!this.isIntersecting && isIntersecting && this.pendingReload) {
+        const reload =
+          !this.isIntersecting && isIntersecting && this.pendingReload
+
+        if (reload) {
           this.reload()
+        }
+
+        if (reload && cellID) {
+          setCellMount(cellID, new Date().getTime())
         }
 
         this.isIntersecting = isIntersecting
@@ -144,13 +151,20 @@ class TimeSeries extends Component<Props & WithRouterProps, State> {
   }
 
   public componentDidUpdate(prevProps: Props) {
-    if (this.shouldReload(prevProps) && this.isIntersecting) {
+    const {setCellMount, cellID} = this.props
+    const reload = this.shouldReload(prevProps) && this.isIntersecting
+    if (reload) {
       this.reload()
+    }
+
+    if (reload && cellID) {
+      setCellMount(cellID, new Date().getTime())
     }
   }
 
   public componentWillUnmount() {
     this.observer && this.observer.disconnect()
+    this.pendingResults.forEach(({cancel}) => cancel())
   }
 
   public render() {
@@ -181,7 +195,14 @@ class TimeSeries extends Component<Props & WithRouterProps, State> {
   }
 
   private reload = async () => {
-    const {variables, notify, check, buckets} = this.props
+    const {
+      buckets,
+      check,
+      isCurrentPageDashboard,
+      notify,
+      onGetCachedResultsThunk,
+      variables,
+    } = this.props
     const queries = this.props.queries.filter(({text}) => !!text.trim())
 
     if (!queries.length) {
@@ -201,7 +222,11 @@ class TimeSeries extends Component<Props & WithRouterProps, State> {
       let errorMessage: string = ''
 
       // Cancel any existing queries
-      this.pendingResults.forEach(({cancel}) => cancel())
+      this.pendingResults.forEach(({cancel}) => {
+        if (cancel) {
+          cancel()
+        }
+      })
       const usedVars = variables.filter(v => v.arguments.type !== 'system')
       const waitList = usedVars.filter(v => v.status !== RemoteDataState.Done)
 
@@ -215,12 +240,24 @@ class TimeSeries extends Component<Props & WithRouterProps, State> {
       // Issue new queries
       this.pendingResults = queries.map(({text}) => {
         const orgID =
-          getOrgIDFromBuckets(text, buckets) || this.props.params.orgID
+          getOrgIDFromBuckets(text, buckets) || this.props.match.params.orgID
 
         const windowVars = getWindowVars(text, vars)
         const extern = buildVarsOption([...vars, ...windowVars])
-
-        return runQuery(orgID, text, extern)
+        event('runQuery', {context: 'TimeSeries'})
+        if (
+          isCurrentPageDashboard &&
+          isFlagEnabled('queryCacheForDashboards')
+        ) {
+          return onGetCachedResultsThunk(orgID, text)
+        }
+        const queryID = hashCode(text)
+        if (!this.hashMapMutex[queryID]) {
+          this.hashMapMutex[queryID] = RunQueryPromiseMutex<RunQueryResult>()
+        }
+        return this.hashMapMutex[queryID].run(orgID, text, extern) as CancelBox<
+          RunQueryResult
+        >
       })
 
       // Wait for new queries to complete
@@ -230,7 +267,7 @@ class TimeSeries extends Component<Props & WithRouterProps, State> {
       if (check) {
         const extern = buildVarsOption(vars)
         this.pendingCheckStatuses = runStatusesQuery(
-          this.props.params.orgID,
+          this.props.match.params.orgID,
           check.id,
           extern
         )
@@ -242,7 +279,9 @@ class TimeSeries extends Component<Props & WithRouterProps, State> {
       for (const result of results) {
         if (result.type === 'UNKNOWN_ERROR') {
           if (isDemoDataAvailabilityError(result.code, result.message)) {
-            notify(demoDataAvailability(demoDataError(this.props.params.orgID)))
+            notify(
+              demoDataAvailability(demoDataError(this.props.match.params.orgID))
+            )
           }
           errorMessage = result.message
           throw new Error(result.message)
@@ -298,6 +337,17 @@ class TimeSeries extends Component<Props & WithRouterProps, State> {
   }
 
   private shouldReload(prevProps: Props) {
+    if (this.props.hasUpdatedTimeRangeInVEO) {
+      return false
+    }
+
+    if (
+      prevProps.hasUpdatedTimeRangeInVEO &&
+      !this.props.hasUpdatedTimeRangeInVEO
+    ) {
+      return true
+    }
+
     if (prevProps.submitToken !== this.props.submitToken) {
       return true
     }
@@ -318,14 +368,16 @@ class TimeSeries extends Component<Props & WithRouterProps, State> {
   }
 }
 
-const mstp = (state: AppState, props: OwnProps): StateProps => {
-  const timeRange = getTimeRange(state)
+const mstp = (state: AppState, props: OwnProps) => {
+  const timeRange = getTimeRangeWithTimezone(state)
 
   // NOTE: cannot use getAllVariables here because the TimeSeries
   // component appends it automatically. That should be fixed
   // NOTE: limit the variables returned to those that are used,
   // as this prevents resending when other queries get sent
-  const queries = props.queries.map(q => q.text).filter(t => !!t.trim())
+  const queries = props.queries
+    ? props.queries.map(q => q.text).filter(t => !!t.trim())
+    : []
   const vars = getVariables(state).filter(v =>
     queries.some(t => isInQuery(t, v))
   )
@@ -336,17 +388,20 @@ const mstp = (state: AppState, props: OwnProps): StateProps => {
   ]
 
   return {
+    hasUpdatedTimeRangeInVEO: hasUpdatedTimeRangeInVEO(state),
+    isCurrentPageDashboard: isCurrentPageDashboardSelector(state),
     queryLink: state.links.query.self,
     buckets: getAll<Bucket>(state, ResourceType.Buckets),
     variables,
   }
 }
 
-const mdtp: DispatchProps = {
+const mdtp = {
   notify: notifyAction,
+  onGetCachedResultsThunk: getCachedResultsThunk,
+  setCellMount: setCellMountAction,
 }
 
-export default connect<StateProps, {}, OwnProps>(
-  mstp,
-  mdtp
-)(withRouter(TimeSeries))
+const connector = connect(mstp, mdtp)
+
+export default connector(withRouter(TimeSeries))

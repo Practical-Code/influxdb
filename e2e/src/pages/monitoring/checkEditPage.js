@@ -7,7 +7,7 @@ const overlay = '[data-testid=overlay]';
 const dismissButton = '[data-testid=page-control-bar] [data-testid=square-button]';
 const saveCellButton = '[data-testid=overlay] [data-testid=save-cell--button]';
 const pageCheckEditTitle = '[data-testid=overlay] [data-testid=page-header] [data-testid=page-title]';
-const pageCheckEditTitleInput = '[data-testid=\'page-header\'] [data-testid=\'input-field\']';
+const pageCheckEditTitleInput = '[data-testid=\'renamable-page-title--input\' ]';
 const queriesToggle = '[data-testid=overlay] [data-testid=select-group--option][title=queries]';
 const configureCheckToggle = '[data-testid=overlay] [data-testid=\'checkeo--header alerting-tab\']';
 const defineQueryToggle = '[data-testid=select-group--option]';
@@ -23,9 +23,9 @@ const previewThresholdHandleByLevel = '[class*=\'threshold-marker--handle thresh
 // Configure Check Controls
 
 //    Properties
-const confChkIntervalInput = '//*[./label/span[text() = \'Schedule Every\']]//*[@data-testid=\'duration-input\']';
-const confChkOffset = '//*[./label/span[text() = \'Offset\']]//*[@data-testid=\'duration-input\']';
-const confChkAddTagButton = '//*[./label/span[text() = \'Tags\']]//*[@data-testid=\'dashed-button\']';
+const confChkIntervalInput = '[data-testid=schedule-check]';
+const confChkOffset = '[data-testid=offset-options]';
+const confChkAddTagButton = '//*[./*/*[text() = \'Tags\']]//*[@data-testid=\'dashed-button\']';
 //    Status Message Template
 const confChkMessageTextArea = '[data-testid=status-message-textarea]';
 
@@ -104,11 +104,11 @@ class checkEditPage extends influxPage {
     }
 
     async getConfChkIntervalInput(){
-        return await this.driver.findElement(By.xpath(confChkIntervalInput));
+        return await this.driver.findElement(By.css(confChkIntervalInput));
     }
 
     async getConfChkOffset(){
-        return await this.driver.findElement(By.xpath(confChkOffset));
+        return await this.driver.findElement(By.css(confChkOffset));
     }
 
     async getConfChkAddTagButton(){
@@ -182,15 +182,15 @@ class checkEditPage extends influxPage {
     }
 
     async getConfTagRuleKeyInputOfTag(index){
-        return await this.driver.findElement(By.css(confTagRuleKeyInputOfTag.replace('%INDEX%', parseInt(index) + 1)));
+        return await this.driver.findElement(By.css(confTagRuleKeyInputOfTag.replace('%INDEX%', parseInt(index) + 2)));
     }
 
     async getConfTagRuleValueInputOfTag(index){
-        return await this.driver.findElement(By.css(confTagRuleValueInputOfTag.replace('%INDEX%', parseInt(index) + 1)));
+        return await this.driver.findElement(By.css(confTagRuleValueInputOfTag.replace('%INDEX%', parseInt(index) + 2)));
     }
 
     async getConfTagRuleDimissOfTag(index){
-        return await this.driver.findElement(By.css(confTagRuleDimissOfTag.replace('%INDEX%', parseInt(index) + 1)));
+        return await this.driver.findElement(By.css(confTagRuleDimissOfTag.replace('%INDEX%', parseInt(index) + 2)));
     }
 
 }

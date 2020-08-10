@@ -3,7 +3,6 @@ package testing
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"sort"
 	"testing"
 	"time"
@@ -48,14 +47,24 @@ var bucketCmpOptions = cmp.Options{
 }
 
 type BucketSvcOpts struct {
-	NoHooks bool
+	NoHooks        bool
+	HTTPValidation bool
 }
+
+type BucketOptsFn func(opts *BucketSvcOpts)
 
 // WithoutHooks allows the test suite to be run without being able to hook into the underlying implementation of theservice
 // in most cases that is to remove specific id generation controls.
-func WithoutHooks() BucketSvcOpts {
-	return BucketSvcOpts{
-		NoHooks: true,
+func WithoutHooks() BucketOptsFn {
+	return func(opts *BucketSvcOpts) {
+		opts.NoHooks = true
+	}
+}
+
+// WithHTTPValidation skips tests involving name validation that only occurs at the HTTP layer
+func WithHTTPValidation() BucketOptsFn {
+	return func(opts *BucketSvcOpts) {
+		opts.HTTPValidation = true
 	}
 }
 
@@ -77,7 +86,7 @@ type bucketServiceF func(
 func BucketService(
 	init func(BucketFields, *testing.T) (influxdb.BucketService, string, func()),
 	t *testing.T,
-	opts ...BucketSvcOpts) {
+	opts ...BucketOptsFn) {
 	tests := []struct {
 		name string
 		fn   bucketServiceF
@@ -89,6 +98,10 @@ func BucketService(
 		{
 			name: "IDUnique",
 			fn:   IDUnique,
+		},
+		{
+			name: "HTTPValidation",
+			fn:   HTTPValidation,
 		},
 		{
 			name: "FindBucketByID",
@@ -111,11 +124,24 @@ func BucketService(
 			fn:   DeleteBucket,
 		},
 	}
+	opt := BucketSvcOpts{
+		NoHooks:        false,
+		HTTPValidation: false,
+	}
+	for _, o := range opts {
+		o(&opt)
+	}
+
 	for _, tt := range tests {
-		if tt.name == "IDUnique" && len(opts) > 0 && opts[0].NoHooks {
+		if tt.name == "IDUnique" && opt.NoHooks {
+			continue
+		}
+		if tt.name == "HTTPValidation" && !opt.HTTPValidation {
 			continue
 		}
 		t.Run(tt.name, func(t *testing.T) {
+			tt := tt
+			t.Parallel()
 			tt.fn(init, t)
 		})
 	}
@@ -139,6 +165,7 @@ func CreateBucket(
 		fields BucketFields
 		args   args
 		wants  wants
+		skip   string
 	}{
 		{
 			name: "create buckets with empty set",
@@ -266,7 +293,7 @@ func CreateBucket(
 				err: &influxdb.Error{
 					Code: influxdb.EConflict,
 					Op:   influxdb.OpCreateBucket,
-					Msg:  fmt.Sprintf("bucket with name bucket1 already exists"),
+					Msg:  "bucket with name bucket1 already exists",
 				},
 			},
 		},
@@ -318,6 +345,7 @@ func CreateBucket(
 					},
 				},
 			},
+			skip: "flaky test: https://github.com/influxdata/influxdb/issues/19109",
 		},
 		{
 			name: "create bucket with orgID not exist",
@@ -339,6 +367,86 @@ func CreateBucket(
 				err: &influxdb.Error{
 					Code: influxdb.ENotFound,
 					Msg:  "organization not found",
+					Op:   influxdb.OpCreateBucket,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.skip != "" {
+				t.Skip(tt.skip)
+			}
+
+			s, opPrefix, done := init(tt.fields, t)
+			defer done()
+			ctx := context.Background()
+			err := s.CreateBucket(ctx, tt.args.bucket)
+			diffPlatformErrors(tt.name, err, tt.wants.err, opPrefix, t)
+
+			// Delete only newly created buckets - ie., with a not nil ID
+			// if tt.args.bucket.ID.Valid() {
+			defer s.DeleteBucket(ctx, tt.args.bucket.ID)
+			// }
+
+			buckets, _, err := s.FindBuckets(ctx, influxdb.BucketFilter{})
+			if err != nil {
+				t.Fatalf("failed to retrieve buckets: %v", err)
+			}
+
+			// remove system buckets
+			filteredBuckets := []*influxdb.Bucket{}
+			for _, b := range buckets {
+				if b.Type != influxdb.BucketTypeSystem {
+					filteredBuckets = append(filteredBuckets, b)
+				}
+			}
+
+			if diff := cmp.Diff(filteredBuckets, tt.wants.buckets, bucketCmpOptions...); diff != "" {
+				t.Errorf("buckets are different -got/+want\ndiff %s", diff)
+			}
+		})
+	}
+}
+
+func HTTPValidation(
+	init func(BucketFields, *testing.T) (influxdb.BucketService, string, func()),
+	t *testing.T,
+) {
+	type args struct {
+		bucket *influxdb.Bucket
+	}
+	type wants struct {
+		err     error
+		buckets []*influxdb.Bucket
+	}
+	tests := []struct {
+		name   string
+		fields BucketFields
+		args   args
+		wants  wants
+	}{
+		{
+			name: "create bucket with illegal quotation mark",
+			fields: BucketFields{
+				IDGenerator:   mock.NewIDGenerator(bucketOneID, t),
+				OrgBucketIDs:  mock.NewIDGenerator(bucketOneID, t),
+				TimeGenerator: mock.TimeGenerator{FakeValue: time.Date(2006, 5, 4, 1, 2, 3, 0, time.UTC)},
+				Buckets:       []*influxdb.Bucket{},
+				Organizations: []*influxdb.Organization{},
+			},
+			args: args{
+				bucket: &influxdb.Bucket{
+					Name:  "namewith\"quote",
+					OrgID: MustIDBase16(orgOneID),
+				},
+			},
+			wants: wants{
+				buckets: []*influxdb.Bucket{},
+				err: &influxdb.Error{
+					Code: influxdb.EInvalid,
+					Msg:  "bucket name namewith\"quote is invalid. Bucket names may not include quotation marks",
 					Op:   influxdb.OpCreateBucket,
 				},
 			},
@@ -434,7 +542,7 @@ func IDUnique(
 				},
 				err: &influxdb.Error{
 					Code: influxdb.EInternal,
-					Msg:  fmt.Sprintf("unable to generate valid id"),
+					Msg:  "unable to generate valid id",
 				},
 			},
 		},
@@ -474,7 +582,7 @@ func IDUnique(
 				},
 				err: &influxdb.Error{
 					Code: influxdb.EInternal,
-					Msg:  fmt.Sprintf("unable to generate valid id"),
+					Msg:  "unable to generate valid id",
 				},
 			},
 		},

@@ -1,13 +1,13 @@
 // Libraries
 import React, {SFC} from 'react'
-import {connect} from 'react-redux'
-import {FromFluxResult} from '@influxdata/giraffe'
+import {connect, ConnectedProps} from 'react-redux'
 import {AutoSizer} from 'react-virtualized'
 import classnames from 'classnames'
 
 // Components
 import EmptyQueryView, {ErrorFormat} from 'src/shared/components/EmptyQueryView'
 import ViewSwitcher from 'src/shared/components/ViewSwitcher'
+import ViewLoadingSpinner from 'src/shared/components/ViewLoadingSpinner'
 import RawFluxDataTable from 'src/timeMachine/components/RawFluxDataTable'
 import ErrorBoundary from 'src/shared/components/ErrorBoundary'
 
@@ -21,43 +21,16 @@ import {
   getFillColumnsSelection,
   getSymbolColumnsSelection,
 } from 'src/timeMachine/selectors'
-import {getTimeRange, getTimeZone} from 'src/dashboards/selectors'
+import {getTimeRangeWithTimezone, getTimeZone} from 'src/dashboards/selectors'
 
 // Types
-import {
-  RemoteDataState,
-  AppState,
-  QueryViewProperties,
-  TimeZone,
-  TimeRange,
-  StatusRow,
-  CheckType,
-  Threshold,
-} from 'src/types'
+import {RemoteDataState, AppState} from 'src/types'
 
 // Selectors
 import {getActiveTimeRange} from 'src/timeMachine/selectors/index'
 
-interface StateProps {
-  timeRange: TimeRange | null
-  loading: RemoteDataState
-  errorMessage: string
-  files: string[]
-  viewProperties: QueryViewProperties
-  isInitialFetch: boolean
-  isViewingRawData: boolean
-  giraffeResult: FromFluxResult
-  xColumn: string
-  yColumn: string
-  checkType: CheckType
-  checkThresholds: Threshold[]
-  fillColumns: string[]
-  symbolColumns: string[]
-  timeZone: TimeZone
-  statuses: StatusRow[][]
-}
-
-type Props = StateProps
+type ReduxProps = ConnectedProps<typeof connector>
+type Props = ReduxProps
 
 const TimeMachineVis: SFC<Props> = ({
   loading,
@@ -99,6 +72,7 @@ const TimeMachineVis: SFC<Props> = ({
   return (
     <div className={timeMachineViewClassName}>
       <ErrorBoundary>
+        <ViewLoadingSpinner loading={loading} />
         <EmptyQueryView
           loading={loading}
           errorFormat={ErrorFormat.Scroll}
@@ -125,7 +99,6 @@ const TimeMachineVis: SFC<Props> = ({
               giraffeResult={giraffeResult}
               timeRange={timeRange}
               files={files}
-              loading={loading}
               properties={resolvedViewProperties}
               checkType={checkType}
               checkThresholds={checkThresholds}
@@ -140,7 +113,7 @@ const TimeMachineVis: SFC<Props> = ({
   )
 }
 
-const mstp = (state: AppState): StateProps => {
+const mstp = (state: AppState) => {
   const activeTimeMachine = getActiveTimeMachine(state)
   const {
     isViewingRawData,
@@ -153,7 +126,7 @@ const mstp = (state: AppState): StateProps => {
       statuses,
     },
   } = activeTimeMachine
-  const timeRange = getTimeRange(state)
+  const timeRange = getTimeRangeWithTimezone(state)
   const {
     alertBuilder: {type: checkType, thresholds: checkThresholds},
   } = state
@@ -186,4 +159,6 @@ const mstp = (state: AppState): StateProps => {
   }
 }
 
-export default connect<StateProps>(mstp)(TimeMachineVis)
+const connector = connect(mstp)
+
+export default connector(TimeMachineVis)

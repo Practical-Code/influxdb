@@ -1,6 +1,6 @@
 // Libraries
 import React, {Component, ChangeEvent, createRef} from 'react'
-import {connect} from 'react-redux'
+import {connect, ConnectedProps} from 'react-redux'
 import _ from 'lodash'
 
 // Components
@@ -9,6 +9,7 @@ import {
   ButtonShape,
   ButtonBaseRef,
   ComponentColor,
+  ClickOutside,
 } from '@influxdata/clockface'
 import InlineLabelPopover from 'src/shared/components/inlineLabels/InlineLabelPopover'
 import CreateLabelOverlay from 'src/labels/components/CreateLabelOverlay'
@@ -35,24 +36,20 @@ export const ADD_NEW_LABEL_LABEL: Label = {
 
 import {ErrorHandling} from 'src/shared/decorators/errors'
 
-interface DispatchProps {
-  onCreateLabel: typeof createLabel
-}
-
-interface StateProps {}
-
 interface OwnProps {
   selectedLabels: Label[]
   labels: Label[]
   onAddLabel: (label: Label) => void
 }
 
-type Props = DispatchProps & StateProps & OwnProps
+type ReduxProps = ConnectedProps<typeof connector>
+type Props = ReduxProps & OwnProps
 
 interface State {
   searchTerm: string
   selectedItemID: string
   isCreatingLabel: OverlayState
+  isPopoverVisible: boolean
 }
 
 @ErrorHandling
@@ -66,7 +63,12 @@ class InlineLabelsEditor extends Component<Props, State> {
       selectedItemID: null,
       searchTerm: '',
       isCreatingLabel: OverlayState.Closed,
+      isPopoverVisible: false,
     }
+  }
+
+  public componentDidMount() {
+    this.handleAddPopoverEventListener()
   }
 
   public render() {
@@ -101,23 +103,26 @@ class InlineLabelsEditor extends Component<Props, State> {
 
   private get popover(): JSX.Element {
     const {labels, selectedLabels} = this.props
-    const {searchTerm, selectedItemID} = this.state
+    const {searchTerm, selectedItemID, isPopoverVisible} = this.state
 
     const labelsUsed =
       labels.length > 0 && labels.length === selectedLabels.length
 
     return (
-      <InlineLabelPopover
-        searchTerm={searchTerm}
-        triggerRef={this.popoverTrigger}
-        selectedItemID={selectedItemID}
-        onUpdateSelectedItemID={this.handleUpdateSelectedItemID}
-        allLabelsUsed={labelsUsed}
-        onStartCreatingLabel={this.handleStartCreatingLabel}
-        onInputChange={this.handleInputChange}
-        filteredLabels={this.filterLabels(searchTerm)}
-        onAddLabel={this.handleAddLabel}
-      />
+      <ClickOutside onClickOutside={this.onClickOutside}>
+        <InlineLabelPopover
+          searchTerm={searchTerm}
+          triggerRef={this.popoverTrigger}
+          selectedItemID={selectedItemID}
+          onUpdateSelectedItemID={this.handleUpdateSelectedItemID}
+          allLabelsUsed={labelsUsed}
+          onStartCreatingLabel={this.handleStartCreatingLabel}
+          onInputChange={this.handleInputChange}
+          filteredLabels={this.filterLabels(searchTerm)}
+          onAddLabel={this.handleAddLabel}
+          visible={isPopoverVisible}
+        />
+      </ClickOutside>
     )
   }
 
@@ -143,6 +148,27 @@ class InlineLabelsEditor extends Component<Props, State> {
         <span className="cf-label--name">Add a label</span>
       </div>
     )
+  }
+
+  private handleAddPopoverEventListener = (): void => {
+    if (!this.popoverTrigger.current) {
+      return
+    }
+    this.popoverTrigger.current.addEventListener('click', () => {
+      this.setState({
+        isPopoverVisible: true,
+      })
+    })
+  }
+
+  private onClickOutside = (e: MouseEvent): void => {
+    if (e.target === this.popoverTrigger.current) {
+      return
+    }
+
+    this.setState({
+      isPopoverVisible: false,
+    })
   }
 
   private handleAddLabel = async (labelID: string) => {
@@ -243,7 +269,7 @@ class InlineLabelsEditor extends Component<Props, State> {
   }
 
   private handleStartCreatingLabel = (): void => {
-    this.setState({isCreatingLabel: OverlayState.Open})
+    this.setState({isCreatingLabel: OverlayState.Open, isPopoverVisible: false})
   }
 
   private handleStopCreatingLabel = (): void => {
@@ -258,15 +284,10 @@ class InlineLabelsEditor extends Component<Props, State> {
   }
 }
 
-const mstp = (): StateProps => {
-  return {}
-}
-
-const mdtp: DispatchProps = {
+const mdtp = {
   onCreateLabel: createLabel,
 }
 
-export default connect<StateProps, DispatchProps, OwnProps>(
-  mstp,
-  mdtp
-)(InlineLabelsEditor)
+const connector = connect(null, mdtp)
+
+export default connector(InlineLabelsEditor)

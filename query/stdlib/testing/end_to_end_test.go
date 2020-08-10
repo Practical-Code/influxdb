@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/influxdata/flux"
 	"github.com/influxdata/flux/ast"
 	"github.com/influxdata/flux/execute"
 	"github.com/influxdata/flux/lang"
@@ -19,11 +18,60 @@ import (
 	platform "github.com/influxdata/influxdb/v2"
 	"github.com/influxdata/influxdb/v2/cmd/influxd/launcher"
 	influxdbcontext "github.com/influxdata/influxdb/v2/context"
+	"github.com/influxdata/influxdb/v2/kit/feature"
+	"github.com/influxdata/influxdb/v2/kit/feature/override"
 	"github.com/influxdata/influxdb/v2/mock"
 	"github.com/influxdata/influxdb/v2/query"
 	_ "github.com/influxdata/influxdb/v2/query/stdlib"
 	itesting "github.com/influxdata/influxdb/v2/query/stdlib/testing" // Import the stdlib
 )
+
+// Flagger for end-to-end test cases. This flagger contains a pointer to a
+// single struct instance that all the test cases will consult. It will return flags
+// based on the contents of FluxEndToEndFeatureFlags and the currently active
+// test case. This works only because tests are serialized. We can set the
+// current test case in the common flagger state, then run the test. If we were
+// to run tests in parallel we would need to create multiple users and assign
+// them different flags combinations, then run the tests under different users.
+
+type Flagger struct {
+	flaggerState *FlaggerState
+}
+
+type FlaggerState struct {
+	Path           string
+	Name           string
+	FeatureFlags   itesting.PerTestFeatureFlagMap
+	DefaultFlagger feature.Flagger
+}
+
+func newFlagger(featureFlagMap itesting.PerTestFeatureFlagMap) Flagger {
+	flaggerState := &FlaggerState{}
+	flaggerState.FeatureFlags = featureFlagMap
+	flaggerState.DefaultFlagger = feature.DefaultFlagger()
+	return Flagger{flaggerState}
+}
+
+func (f Flagger) SetActiveTestCase(path string, name string) {
+	f.flaggerState.Path = path
+	f.flaggerState.Name = name
+}
+
+func (f Flagger) Flags(ctx context.Context, _f ...feature.Flag) (map[string]interface{}, error) {
+	// If an override is set for the test case, construct an override flagger
+	// and use it's computed flags.
+	overrides := f.flaggerState.FeatureFlags[f.flaggerState.Path][f.flaggerState.Name]
+	if overrides != nil {
+		f, err := override.Make(overrides, nil)
+		if err != nil {
+			panic("failed to construct override flagger, probably an invalid flag in FluxEndToEndFeatureFlags")
+		}
+		return f.Flags(ctx)
+	}
+
+	// Otherwise use flags from a default flagger.
+	return f.flaggerState.DefaultFlagger.Flags(ctx)
+}
 
 // Default context.
 var ctx = influxdbcontext.SetAuthorizer(context.Background(), mock.NewMockAuthorizer(true, nil))
@@ -40,7 +88,8 @@ func BenchmarkFluxEndToEnd(b *testing.B) {
 }
 
 func runEndToEnd(t *testing.T, pkgs []*ast.Package) {
-	l := launcher.RunTestLauncherOrFail(t, ctx)
+	flagger := newFlagger(itesting.FluxEndToEndFeatureFlags)
+	l := launcher.RunTestLauncherOrFail(t, ctx, flagger)
 	l.SetupOrFail(t)
 	defer l.ShutdownOrFail(t, ctx)
 	for _, pkg := range pkgs {
@@ -60,6 +109,8 @@ func runEndToEnd(t *testing.T, pkgs []*ast.Package) {
 					if reason, ok := itesting.FluxEndToEndSkipList[pkg.Path][name]; ok {
 						t.Skip(reason)
 					}
+
+					flagger.SetActiveTestCase(pkg.Path, name)
 					testFlux(t, l, file)
 				})
 			}
@@ -103,12 +154,15 @@ func makeTestPackage(file *ast.File) *ast.Package {
 var optionsSource = `
 import "testing"
 import c "csv"
+import "experimental"
 
 // Options bucket and org are defined dynamically per test
 
 option testing.loadStorage = (csv) => {
-	c.from(csv: csv) |> to(bucket: bucket, org: org)
-	return from(bucket: bucket)
+	return experimental.chain(
+		first:  c.from(csv: csv) |> to(bucket: bucket, org: org),
+		second: from(bucket:bucket)
+	)
 }
 `
 var optionsAST *ast.File
@@ -122,8 +176,6 @@ func init() {
 }
 
 func testFlux(t testing.TB, l *launcher.TestLauncher, file *ast.File) {
-
-	// Query server to ensure write persists.
 
 	b := &platform.Bucket{
 		OrgID:           l.Org.ID,
@@ -156,7 +208,7 @@ func testFlux(t testing.TB, l *launcher.TestLauncher, file *ast.File) {
 	pkg := makeTestPackage(file)
 	pkg.Files = append(pkg.Files, options)
 
-	// Add testing.inspect call to ensure the data is loaded
+	// Use testing.inspect call to get all of diff, want, and got
 	inspectCalls := stdlib.TestingInspectCalls(pkg)
 	pkg.Files = append(pkg.Files, inspectCalls)
 
@@ -169,78 +221,42 @@ func testFlux(t testing.TB, l *launcher.TestLauncher, file *ast.File) {
 		OrganizationID: l.Org.ID,
 		Compiler:       lang.ASTCompiler{AST: bs},
 	}
+
 	if r, err := l.FluxQueryService().Query(ctx, req); err != nil {
 		t.Fatal(err)
 	} else {
+		results := make(map[string]*bytes.Buffer)
+
 		for r.More() {
 			v := r.Next()
-			if err := v.Tables().Do(func(tbl flux.Table) error {
-				return tbl.Do(func(reader flux.ColReader) error {
-					return nil
-				})
-			}); err != nil {
-				t.Error(err)
+
+			if _, ok := results[v.Name()]; !ok {
+				results[v.Name()] = &bytes.Buffer{}
 			}
-		}
-	}
-
-	// quirk: our execution engine doesn't guarantee the order of execution for disconnected DAGS
-	// so that our function-with-side effects call to `to` may run _after_ the test instead of before.
-	// running twice makes sure that `to` happens at least once before we run the test.
-	// this time we use a call to `run` so that the assertion error is triggered
-	runCalls := stdlib.TestingRunCalls(pkg)
-	pkg.Files[len(pkg.Files)-1] = runCalls
-
-	bs, err = json.Marshal(pkg)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req = &query.Request{
-		OrganizationID: l.Org.ID,
-		Compiler:       lang.ASTCompiler{AST: bs},
-	}
-	r, err := l.FluxQueryService().Query(ctx, req)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for r.More() {
-		v := r.Next()
-		if err := v.Tables().Do(func(tbl flux.Table) error {
-			return tbl.Do(func(reader flux.ColReader) error {
-				return nil
-			})
-		}); err != nil {
-			t.Error(err)
-		}
-	}
-	if err := r.Err(); err != nil {
-		t.Error(err)
-		// Replace the testing.run calls with testing.inspect calls.
-		pkg.Files[len(pkg.Files)-1] = inspectCalls
-		r, err := l.FluxQueryService().Query(ctx, req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var out bytes.Buffer
-		defer func() {
-			if t.Failed() {
-				scanner := bufio.NewScanner(&out)
-				for scanner.Scan() {
-					t.Log(scanner.Text())
-				}
-			}
-		}()
-		for r.More() {
-			v := r.Next()
-			err := execute.FormatResult(&out, v)
+			err := execute.FormatResult(results[v.Name()], v)
 			if err != nil {
 				t.Error(err)
 			}
 		}
 		if err := r.Err(); err != nil {
 			t.Error(err)
+		}
+
+		logFormatted := func(name string, results map[string]*bytes.Buffer) {
+			if _, ok := results[name]; ok {
+				scanner := bufio.NewScanner(results[name])
+				for scanner.Scan() {
+					t.Log(scanner.Text())
+				}
+			} else {
+				t.Log("table ", name, " not present in results")
+			}
+		}
+		if _, ok := results["diff"]; ok {
+			t.Error("diff table was not empty")
+			logFormatted("diff", results)
+			logFormatted("want", results)
+			logFormatted("got", results)
 		}
 	}
 }

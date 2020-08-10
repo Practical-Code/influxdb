@@ -36,7 +36,8 @@ export interface RunQueryErrorResult {
 export const runQuery = (
   orgID: string,
   query: string,
-  extern?: File
+  extern?: File,
+  abortController?: AbortController
 ): CancelBox<RunQueryResult> => {
   const url = `${API_BASE_PATH}api/v2/query?${new URLSearchParams({orgID})}`
 
@@ -51,13 +52,13 @@ export const runQuery = (
     dialect: {annotations: ['group', 'datatype', 'default']},
   }
 
-  const controller = new AbortController()
+  const controller = abortController || new AbortController()
 
   const request = fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
-    signal: controller.signal,
+    signal: controller?.signal,
   })
 
   const promise = request

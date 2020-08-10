@@ -26,7 +26,7 @@ class templatesSteps extends baseSteps{
     async verifyImportTemplatePopupLoaded(){
         await this.assertVisible(await this.tmTab.getImportTemplateUploadButton());
         await this.assertVisible(await this.tmTab.getImportTemplatePasteButton());
-        await this.assertVisible(await this.tmTab.getPopupSubmit());
+        await this.assertVisible(await this.tmTab.getImportTemplateSubmitButton());
         await this.assertVisible(await this.tmTab.getPopupDismiss());
         await this.assertVisible(await this.tmTab.getPopupFileUploadHeader());
         await this.verifyElementContainsText(await this.tmTab.getPopupTitle(), 'Import Template');
@@ -58,9 +58,9 @@ class templatesSteps extends baseSteps{
 
     async verifyImportTemplatePopupSubmitEnabled(enabled){
         if(enabled){
-            await this.verifyElementEnabled(await this.tmTab.getPopupSubmit());
+            await this.verifyElementEnabled(await this.tmTab.getImportTemplateSubmitButton());
         }else{
-            await this.verifyElementDisabled(await this.tmTab.getPopupSubmit());
+            await this.verifyElementDisabled(await this.tmTab.getImportTemplateSubmitButton());
         }
     }
 
@@ -92,6 +92,10 @@ class templatesSteps extends baseSteps{
         });
     }
 
+    async clickImportTemplateSubmitButton(){
+        await this.clickAndWait(await this.tmTab.getImportTemplateSubmitButton());
+    }
+
     async verifyTemplateCardVisibility(name){
         await this.assertVisible(await this.tmTab.getTemplateCardByName(name));
     }
@@ -101,8 +105,8 @@ class templatesSteps extends baseSteps{
     }
 
     async verifyRESTTemplateDocumentExists(user,title){
-        let uzzer = await influxUtils.getUser(user);
-        let resp = await influxUtils.getDocTemplates(uzzer.orgid);
+        //let uzzer = await influxUtils.getUser(user);
+        let resp = await influxUtils.getDocTemplates(user);
         let match = resp.documents.filter( doc => doc.meta.name === title);
         expect(match.length).to.be.above(0);
     }

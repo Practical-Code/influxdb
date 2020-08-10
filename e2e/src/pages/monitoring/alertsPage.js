@@ -7,16 +7,16 @@ const createEndpointButton = '[data-testid=create-endpoint]';
 const createRuleButton = '[data-testid=create-rule]';
 const checksFilterInput = '[data-testid=\'filter--input checks\']';
 const checksQuestionMark = '[data-testid=\'Checks--question-mark\']';
-const checksTooltipContents = '[data-testid=\'Checks--question-mark-tooltip--contents\']';
+const checksTooltipContents = '[data-testid=\'Checks--question-mark--tooltip--contents\']';
 const alertingTab = '[data-testid=alerting-tab--%TABNAME%]';
 const createCheckDropdown = '[data-testid=\'checks--column\'] [data-testid=\'dropdown-menu--contents\']';
 const createCheckDropdownItem = '[data-testid=\'dropdown-menu--contents\'] [data-testid=create-%ITEM%-check]';
 const endpointsFilterInput = '[data-testid=\'filter--input endpoints\']';
 const endpointsQuestionMark = '[data-testid=\'Notification Endpoints--question-mark\']';
-const endpointsTooltipContents = '[data-testid=\'Notification Endpoints--question-mark-tooltip--contents\']';
+const endpointsTooltipContents = '[data-testid=\'Notification Endpoints--question-mark--tooltip--contents\']';
 const rulesFilterInput = '[data-testid=\'filter--input rules\']';
 const rulesQuestionMark = '[data-testid=\'Notification Rules--question-mark\']';
-const rulesTooltipContents = '[data-testid=\'Notification Rules--question-mark-tooltip--contents\']';
+const rulesTooltipContents = '[data-testid=\'Notification Rules--question-mark--tooltip--contents\']';
 const firstTimeThresholdCheckCreateButton = '[data-testid=\'checks--column\'] [data-testid=panel--body] [data-testid=button][title=\'Threshold Check\']';
 const firstTimeDeadmanCheckCreateButton = '[data-testid=\'checks--column\'] [data-testid=panel--body] [data-testid=button][title=\'Deadman Check\']';
 const emptyStateColumnText = '[data-testid=\'%COL%--column\'] [data-testid=\'empty-state--text\']';
@@ -34,8 +34,8 @@ const checkCardLabelPill = '//*[@data-testid=\'check-card\'][.//*[text()=\'%NAME
 const checkCardLabelRemove = '//*[@data-testid=\'check-card\'][.//*[text()=\'%NAME%\']]//*[@data-testid=\'label--pill--delete %LABEL%\']';
 const checkCardCloneButton = '//*[@data-testid=\'check-card\'][.//*[text()=\'%NAME%\']]//*[@data-testid=\'context-menu\'][./*[contains(@class,\'duplicate\')]]';
 const checkCardCloneConfirm = '//*[@data-testid=\'check-card\'][.//*[text()=\'%NAME%\']]//*[@data-testid=\'context-menu-item\'][text()=\'Clone\']';
-const checkCardOpenHistory = '//*[@data-testid=\'check-card\'][.//*[text()=\'%NAME%\']]//*[@data-testid=\'context-menu\'][./*[contains(@class,\'eye-open\')]]';
-const checkCardOpenHistoryConfirm = '//*[@data-testid=\'check-card\'][.//*[text()=\'%NAME%\']]//*[@data-testid=\'context-menu-item\']';
+const checkCardOpenHistory = '//*[@data-testid=\'check-card\'][.//*[text()=\'%NAME%\']]//*[@data-testid=\'context-history-menu\'][./*[contains(@class,\'eye-open\')]]';
+const checkCardOpenHistoryConfirm = '//*[@data-testid=\'check-card\'][.//*[text()=\'%NAME%\']]//*[@data-testid=\'context-history-task\']';
 const checkCardDeleteButton = '//*[@data-testid=\'check-card\'][.//*[text()=\'%NAME%\']]//*[@data-testid=\'context-delete-menu\']';
 const checkCardDeleteConfirm = '//*[@data-testid=\'check-card\'][.//*[text()=\'%NAME%\']]//*[@data-testid=\'context-delete-task\']'
 

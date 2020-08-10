@@ -27,16 +27,15 @@ func initBoltBucketService(f influxdbtesting.BucketFields, t *testing.T) (influx
 	}
 }
 
-func initBucketService(s kv.Store, f influxdbtesting.BucketFields, t *testing.T) (influxdb.BucketService, string, func()) {
-	storage, err := tenant.NewStore(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+func initBucketService(s kv.SchemaStore, f influxdbtesting.BucketFields, t *testing.T) (influxdb.BucketService, string, func()) {
+	storage := tenant.NewStore(s)
 	svc := tenant.NewService(storage)
 
 	for _, o := range f.Organizations {
-		if err := svc.CreateOrganization(context.Background(), o); err != nil {
+		// use storage create org in order to avoid creating system buckets
+		if err := s.Update(context.Background(), func(tx kv.Tx) error {
+			return storage.CreateOrg(tx.Context(), tx, o)
+		}); err != nil {
 			t.Fatalf("failed to populate organizations: %s", err)
 		}
 	}
@@ -62,11 +61,8 @@ func TestBucketFind(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer close()
-	storage, err := tenant.NewStore(s)
-	if err != nil {
-		t.Fatal(err)
-	}
 
+	storage := tenant.NewStore(s)
 	svc := tenant.NewService(storage)
 	o := &influxdb.Organization{
 		Name: "theorg",
@@ -91,11 +87,8 @@ func TestSystemBucketsInNameFind(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer close()
-	storage, err := tenant.NewStore(s)
-	if err != nil {
-		t.Fatal(err)
-	}
 
+	storage := tenant.NewStore(s)
 	svc := tenant.NewService(storage)
 	o := &influxdb.Organization{
 		Name: "theorg",

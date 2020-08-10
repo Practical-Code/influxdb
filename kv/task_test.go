@@ -10,11 +10,18 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/google/go-cmp/cmp"
 	"github.com/influxdata/influxdb/v2"
+	"github.com/influxdata/influxdb/v2/authorization"
 	icontext "github.com/influxdata/influxdb/v2/context"
+	"github.com/influxdata/influxdb/v2/kit/feature"
 	"github.com/influxdata/influxdb/v2/kv"
+	"github.com/influxdata/influxdb/v2/mock"
 	_ "github.com/influxdata/influxdb/v2/query/builtin"
 	"github.com/influxdata/influxdb/v2/query/fluxlang"
+	"github.com/influxdata/influxdb/v2/task/options"
 	"github.com/influxdata/influxdb/v2/task/servicetest"
+	"github.com/influxdata/influxdb/v2/tenant"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -27,13 +34,17 @@ func TestBoltTaskService(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			ctx, cancelFunc := context.WithCancel(context.Background())
 			service := kv.NewService(zaptest.NewLogger(t), store, kv.ServiceConfig{
 				FluxLanguageService: fluxlang.DefaultService,
 			})
-			ctx, cancelFunc := context.WithCancel(context.Background())
-			if err := service.Initialize(ctx); err != nil {
-				t.Fatalf("error initializing urm service: %v", err)
-			}
+
+			tenantStore := tenant.NewStore(store)
+			ts := tenant.NewService(tenantStore)
+
+			authStore, err := authorization.NewStore(store)
+			require.NoError(t, err)
+			authSvc := authorization.NewService(authStore, ts)
 
 			go func() {
 				<-ctx.Done()
@@ -41,10 +52,13 @@ func TestBoltTaskService(t *testing.T) {
 			}()
 
 			return &servicetest.System{
-				TaskControlService: service,
-				TaskService:        service,
-				I:                  service,
-				Ctx:                ctx,
+				TaskControlService:         service,
+				TaskService:                service,
+				OrganizationService:        ts.OrganizationService,
+				UserService:                ts.UserService,
+				UserResourceMappingService: ts.UserResourceMappingService,
+				AuthorizationService:       authSvc,
+				Ctx:                        ctx,
 			}, cancelFunc
 		},
 		"transactional",
@@ -73,21 +87,23 @@ func newService(t *testing.T, ctx context.Context, c clock.Clock) *testService {
 		c = clock.New()
 	}
 
-	ts := &testService{}
-	var err error
-	ts.Store, ts.storeCloseFn, err = NewTestInmemStore(t)
+	var (
+		ts    = &testService{}
+		err   error
+		store kv.SchemaStore
+	)
+
+	store, ts.storeCloseFn, err = NewTestInmemStore(t)
 	if err != nil {
 		t.Fatal("failed to create InmemStore", err)
 	}
 
-	ts.Service = kv.NewService(zaptest.NewLogger(t), ts.Store, kv.ServiceConfig{
+	ts.Store = store
+
+	ts.Service = kv.NewService(zaptest.NewLogger(t), store, kv.ServiceConfig{
 		Clock:               c,
 		FluxLanguageService: fluxlang.DefaultService,
 	})
-	err = ts.Service.Initialize(ctx)
-	if err != nil {
-		t.Fatal("Service.Initialize", err)
-	}
 
 	ts.User = influxdb.User{Name: t.Name() + "-user"}
 	if err := ts.Service.CreateUser(ctx, &ts.User); err != nil {
@@ -175,7 +191,7 @@ func TestRetrieveTaskWithBadAuth(t *testing.T) {
 		t.Fatal("miss matching taskID's")
 	}
 
-	tasks, _, err := ts.Service.FindTasks(ctx, influxdb.TaskFilter{})
+	tasks, _, err := ts.Service.FindTasks(context.Background(), influxdb.TaskFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +201,7 @@ func TestRetrieveTaskWithBadAuth(t *testing.T) {
 
 	// test status filter
 	active := string(influxdb.TaskActive)
-	tasksWithActiveFilter, _, err := ts.Service.FindTasks(ctx, influxdb.TaskFilter{Status: &active})
+	tasksWithActiveFilter, _, err := ts.Service.FindTasks(context.Background(), influxdb.TaskFilter{Status: &active})
 	if err != nil {
 		t.Fatal("could not find tasks")
 	}
@@ -251,14 +267,13 @@ func TestTaskRunCancellation(t *testing.T) {
 	}
 	defer close()
 
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+
 	service := kv.NewService(zaptest.NewLogger(t), store, kv.ServiceConfig{
 		FluxLanguageService: fluxlang.DefaultService,
 	})
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	if err := service.Initialize(ctx); err != nil {
-		t.Fatalf("error initializing urm service: %v", err)
-	}
-	defer cancelFunc()
+
 	u := &influxdb.User{Name: t.Name() + "-user"}
 	if err := service.CreateUser(ctx, u); err != nil {
 		t.Fatal(err)
@@ -313,5 +328,105 @@ func TestTaskRunCancellation(t *testing.T) {
 
 	if canceled.Status != influxdb.RunCanceled.String() {
 		t.Fatalf("expected task run to be cancelled")
+	}
+}
+
+type taskOptions struct {
+	name        string
+	every       string
+	cron        string
+	offset      string
+	concurrency int64
+	retry       int64
+}
+
+func TestExtractTaskOptions(t *testing.T) {
+	tcs := []struct {
+		name     string
+		flux     string
+		expected taskOptions
+		errMsg   string
+	}{
+		{
+			name: "all parameters",
+			flux: `option task = {name: "whatever", every: 1s, offset: 0s, concurrency: 2, retry: 2}`,
+			expected: taskOptions{
+				name:        "whatever",
+				every:       "1s",
+				offset:      "0s",
+				concurrency: 2,
+				retry:       2,
+			},
+		},
+		{
+			name: "some extra whitespace and bad content around it",
+			flux: `howdy()
+			option     task    =     { name:"whatever",  cron:  "* * * * *"  }
+			hello()
+			`,
+			expected: taskOptions{
+				name:        "whatever",
+				cron:        "* * * * *",
+				concurrency: 1,
+				retry:       1,
+			},
+		},
+		{
+			name:   "bad options",
+			flux:   `option task = {name: "whatever", every: 1s, cron: "* * * * *"}`,
+			errMsg: "cannot use both cron and every in task options",
+		},
+		{
+			name:   "no options",
+			flux:   `doesntexist()`,
+			errMsg: "no task options defined",
+		},
+		{
+			name: "multiple assignments",
+			flux: `
+			option task = {name: "whatever", every: 1s, offset: 0s, concurrency: 2, retry: 2}
+			option task = {name: "whatever", every: 1s, offset: 0s, concurrency: 2, retry: 2}
+			`,
+			errMsg: "multiple task options defined",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			flagger := mock.NewFlagger(map[feature.Flag]interface{}{
+				feature.SimpleTaskOptionsExtraction(): true,
+			})
+			ctx, _ := feature.Annotate(context.Background(), flagger)
+			opts, err := kv.ExtractTaskOptions(ctx, fluxlang.DefaultService, tc.flux)
+			if tc.errMsg != "" {
+				require.Error(t, err)
+				assert.Equal(t, tc.errMsg, err.Error())
+				return
+			}
+
+			require.NoError(t, err)
+
+			var offset options.Duration
+			if opts.Offset != nil {
+				offset = *opts.Offset
+			}
+
+			var concur int64
+			if opts.Concurrency != nil {
+				concur = *opts.Concurrency
+			}
+
+			var retry int64
+			if opts.Retry != nil {
+				retry = *opts.Retry
+			}
+
+			assert.Equal(t, tc.expected.name, opts.Name)
+			assert.Equal(t, tc.expected.cron, opts.Cron)
+			assert.Equal(t, tc.expected.every, opts.Every.String())
+			assert.Equal(t, tc.expected.offset, offset.String())
+			assert.Equal(t, tc.expected.concurrency, concur)
+			assert.Equal(t, tc.expected.retry, retry)
+		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/influxdata/flux/codes"
 	"github.com/influxdata/flux/execute"
 	"github.com/influxdata/flux/memory"
+	"github.com/influxdata/flux/metadata"
 	"github.com/influxdata/flux/plan"
 	platform "github.com/influxdata/influxdb/v2"
 	"github.com/influxdata/influxdb/v2/kit/tracing"
@@ -63,8 +64,8 @@ func (s *Source) AddTransformation(t execute.Transformation) {
 	s.ts = append(s.ts, t)
 }
 
-func (s *Source) Metadata() flux.Metadata {
-	return flux.Metadata{
+func (s *Source) Metadata() metadata.Metadata {
+	return metadata.Metadata{
 		"influxdb/scanned-bytes":  []interface{}{s.stats.ScannedBytes},
 		"influxdb/scanned-values": []interface{}{s.stats.ScannedValues},
 	}
@@ -211,7 +212,7 @@ func ReadGroupSource(id execute.DatasetID, r query.StorageReader, readSpec query
 
 	src.m = GetStorageDependencies(a.Context()).FromDeps.Metrics
 	src.orgID = readSpec.OrganizationID
-	src.op = "readGroup"
+	src.op = readSpec.Name()
 
 	src.runner = src
 	return src
@@ -289,7 +290,7 @@ func ReadWindowAggregateSource(id execute.DatasetID, r query.WindowAggregateRead
 
 	src.m = GetStorageDependencies(a.Context()).FromDeps.Metrics
 	src.orgID = readSpec.OrganizationID
-	src.op = "readWindowAggregate"
+	src.op = readSpec.Name()
 
 	src.runner = src
 	return src
@@ -350,8 +351,10 @@ func createReadWindowAggregateSource(s plan.ProcedureSpec, id execute.DatasetID,
 				Predicate:      spec.Filter,
 			},
 			WindowEvery: spec.WindowEvery,
+			Offset:      spec.Offset,
 			Aggregates:  spec.Aggregates,
 			CreateEmpty: spec.CreateEmpty,
+			TimeColumn:  spec.TimeColumn,
 		},
 		a,
 	), nil

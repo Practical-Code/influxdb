@@ -65,6 +65,9 @@ message Aggregate {
     COUNT = 2 [(gogoproto.enumvalue_customname) = "AggregateTypeCount"];
     MIN = 3 [(gogoproto.enumvalue_customname) = "AggregateTypeMin"];
     MAX = 4 [(gogoproto.enumvalue_customname) = "AggregateTypeMax"];
+    FIRST = 5 [(gogoproto.enumvalue_customname) = "AggregateTypeFirst"];
+    LAST = 6 [(gogoproto.enumvalue_customname) = "AggregateTypeLast"];
+    MEAN = 7 [(gogoproto.enumvalue_customname) = "AggregateTypeMean"];
   }
 
   AggregateType type = 1;
@@ -195,6 +198,7 @@ message StringValuesResponse {
 message MeasurementNamesRequest {
   google.protobuf.Any source = 1;
   TimestampRange range = 2 [(gogoproto.nullable) = false];
+  Predicate predicate = 3;
 }
 
 // MeasurementTagKeysRequest is the request message for Storage.MeasurementTagKeys.
@@ -249,5 +253,6 @@ message ReadWindowAggregateRequest {
   TimestampRange range = 2 [(gogoproto.nullable) = false];
   Predicate predicate = 3;
   int64 WindowEvery = 4;
+  int64 Offset = 6;
   repeated Aggregate aggregate = 5;
 }

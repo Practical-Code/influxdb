@@ -1,6 +1,6 @@
 // Libraries
 import React, {PureComponent, ChangeEvent, FormEvent} from 'react'
-import {connect} from 'react-redux'
+import {connect, ConnectedProps} from 'react-redux'
 import {
   AlignItems,
   ComponentSize,
@@ -22,7 +22,6 @@ import auth0js, {WebAuth} from 'auth0-js'
 import {LoginForm} from 'src/onboarding/components/LoginForm'
 import {SocialButton} from 'src/shared/components/SocialButton'
 import {GoogleLogo} from 'src/clientLibraries/graphics'
-import {isFlagEnabled} from 'src/shared/utils/featureFlag'
 
 // Types
 import {Auth0Connection, FormFieldValidation} from 'src/types'
@@ -38,10 +37,6 @@ interface ErrorObject {
   passwordError?: string
 }
 
-interface DispatchProps {
-  onNotify: typeof notify
-}
-
 interface State {
   buttonStatus: ComponentStatus
   email: string
@@ -50,7 +45,10 @@ interface State {
   passwordError: string
 }
 
-class LoginPageContents extends PureComponent<DispatchProps> {
+type ReduxProps = ConnectedProps<typeof connector>
+type Props = ReduxProps
+
+class LoginPageContents extends PureComponent<Props> {
   private auth0: typeof WebAuth
 
   state: State = {
@@ -63,13 +61,8 @@ class LoginPageContents extends PureComponent<DispatchProps> {
 
   public async componentDidMount() {
     try {
-      let config
-      if (isFlagEnabled('redirectToCloud')) {
-        const redirectTo = getFromLocalStorage('redirectTo') || '/'
-        config = await getAuth0Config(redirectTo)
-      } else {
-        config = await getAuth0Config()
-      }
+      const redirectTo = getFromLocalStorage('redirectTo') || '/'
+      const config = await getAuth0Config(redirectTo)
       this.auth0 = new auth0js.WebAuth({
         domain: config.domain,
         clientID: config.clientID,
@@ -79,10 +72,6 @@ class LoginPageContents extends PureComponent<DispatchProps> {
       })
     } catch (error) {
       console.error(error)
-      // TODO: uncomment after demo day
-      // redirect to universal login page if there's an error
-      // window.location.href =
-      // 'https://auth.a.influxcloud.net/'
       throw error
     }
   }
@@ -269,11 +258,10 @@ class LoginPageContents extends PureComponent<DispatchProps> {
   }
 }
 
-const mdtp: DispatchProps = {
+const mdtp = {
   onNotify: notify,
 }
 
-export default connect<{}, DispatchProps>(
-  null,
-  mdtp
-)(LoginPageContents)
+const connector = connect(null, mdtp)
+
+export default connector(LoginPageContents)

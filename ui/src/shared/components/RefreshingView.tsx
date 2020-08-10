@@ -1,16 +1,18 @@
 // Libraries
 import React, {PureComponent} from 'react'
-import {withRouter, WithRouterProps} from 'react-router'
+import {withRouter, RouteComponentProps} from 'react-router-dom'
 import {connect} from 'react-redux'
 
 // Components
 import TimeSeries from 'src/shared/components/TimeSeries'
 import EmptyQueryView, {ErrorFormat} from 'src/shared/components/EmptyQueryView'
 import ViewSwitcher from 'src/shared/components/ViewSwitcher'
+import ViewLoadingSpinner from 'src/shared/components/ViewLoadingSpinner'
+import CellEvent from 'src/perf/components/CellEvent'
 
 // Utils
 import {GlobalAutoRefresher} from 'src/utils/AutoRefresher'
-import {getTimeRange} from 'src/dashboards/selectors'
+import {getTimeRangeWithTimezone} from 'src/dashboards/selectors'
 import {checkResultsLength} from 'src/shared/utils/vis'
 import {getActiveTimeRange} from 'src/timeMachine/selectors/index'
 
@@ -25,6 +27,7 @@ import {
 } from 'src/types'
 
 interface OwnProps {
+  id: string
   manualRefresh: number
   properties: QueryViewProperties
 }
@@ -40,7 +43,7 @@ interface State {
   submitToken: number
 }
 
-type Props = OwnProps & StateProps & WithRouterProps
+type Props = OwnProps & StateProps & RouteComponentProps<{orgID: string}>
 
 class RefreshingView extends PureComponent<Props, State> {
   public static defaultProps = {
@@ -63,11 +66,12 @@ class RefreshingView extends PureComponent<Props, State> {
   }
 
   public render() {
-    const {ranges, properties, manualRefresh, timeZone, theme} = this.props
+    const {id, ranges, properties, manualRefresh, timeZone, theme} = this.props
     const {submitToken} = this.state
 
     return (
       <TimeSeries
+        cellID={id}
         submitToken={submitToken}
         queries={this.queries}
         key={manualRefresh}
@@ -81,26 +85,31 @@ class RefreshingView extends PureComponent<Props, State> {
           statuses,
         }) => {
           return (
-            <EmptyQueryView
-              errorFormat={ErrorFormat.Scroll}
-              errorMessage={errorMessage}
-              hasResults={checkResultsLength(giraffeResult)}
-              loading={loading}
-              isInitialFetch={isInitialFetch}
-              queries={this.queries}
-              fallbackNote={this.fallbackNote}
-            >
-              <ViewSwitcher
-                files={files}
-                giraffeResult={giraffeResult}
+            <>
+              <ViewLoadingSpinner loading={loading} />
+              <EmptyQueryView
+                errorFormat={ErrorFormat.Scroll}
+                errorMessage={errorMessage}
+                hasResults={checkResultsLength(giraffeResult)}
                 loading={loading}
-                properties={properties}
-                timeRange={ranges}
-                statuses={statuses}
-                timeZone={timeZone}
-                theme={theme}
-              />
-            </EmptyQueryView>
+                isInitialFetch={isInitialFetch}
+                queries={this.queries}
+                fallbackNote={this.fallbackNote}
+              >
+                <>
+                  <CellEvent id={id} type={properties.type} />
+                  <ViewSwitcher
+                    files={files}
+                    giraffeResult={giraffeResult}
+                    properties={properties}
+                    timeRange={ranges}
+                    statuses={statuses}
+                    timeZone={timeZone}
+                    theme={theme}
+                  />
+                </>
+              </EmptyQueryView>
+            </>
           )
         }}
       </TimeSeries>
@@ -137,8 +146,8 @@ class RefreshingView extends PureComponent<Props, State> {
   }
 }
 
-const mstp = (state: AppState, ownProps: OwnProps): StateProps => {
-  const timeRange = getTimeRange(state)
+const mstp = (state: AppState, ownProps: OwnProps) => {
+  const timeRange = getTimeRangeWithTimezone(state)
   const ranges = getActiveTimeRange(timeRange, ownProps.properties.queries)
   const {timeZone, theme} = state.app.persisted
 

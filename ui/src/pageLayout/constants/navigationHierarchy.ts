@@ -111,9 +111,9 @@ export const generateNavItems = (orgID: string): NavItem[] => {
       id: 'notebooks',
       testID: 'nav-item-notebooks',
       icon: IconFont.Erlenmeyer,
-      label: 'Notebook',
+      label: 'Flows',
       featureFlag: 'notebooks',
-      shortLabel: 'Book',
+      shortLabel: 'Flows',
       link: {
         type: 'link',
         location: `${orgPrefix}/notebooks`,
@@ -128,7 +128,7 @@ export const generateNavItems = (orgID: string): NavItem[] => {
       shortLabel: 'Boards',
       link: {
         type: 'link',
-        location: `${orgPrefix}/dashboards`,
+        location: `${orgPrefix}/dashboards-list`,
       },
       activeKeywords: ['dashboards'],
     },

@@ -54,9 +54,9 @@ The project also requires a recent stable version of Rust. We recommend using [r
 
 If you are getting an `error loading module requirements` error with `bzr executable file not found in $PATH”` on `make`, then you need to ensure you have `bazaar`, `protobuf`, and `yarn` installed.
 
-- OSX: `brew install bazaar yarn`
+- OSX: `brew install bazaar protobuf yarn`
 - Linux (Arch): `pacman -S bzr protobuf yarn`
-- Linux (Ubuntu): `apt install bzr protobuf-compiler yarnpkg`
+- Linux (Ubuntu): `apt install bzr protobuf-compiler libprotobuf-dev yarnpkg`
 
 **NB:** For RedHat, there are some extra steps:
 

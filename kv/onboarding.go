@@ -16,11 +16,6 @@ var (
 
 var _ influxdb.OnboardingService = (*Service)(nil)
 
-func (s *Service) initializeOnboarding(ctx context.Context, tx Tx) error {
-	_, err := tx.Bucket(onboardingBucket)
-	return err
-}
-
 // IsOnboarding means if the initial setup of influxdb has happened.
 // true means that the onboarding setup has not yet happened.
 // false means that the onboarding has been completed.
@@ -134,8 +129,10 @@ func (s *Service) OnboardInitialUser(ctx context.Context, req *influxdb.Onboardi
 			return err
 		}
 
-		if err := s.setPassword(ctx, tx, u.ID, req.Password); err != nil {
-			return err
+		if req.Password != "" {
+			if err := s.setPassword(ctx, tx, u.ID, req.Password); err != nil {
+				return err
+			}
 		}
 
 		if err := s.createOrganization(ctx, tx, o); err != nil {

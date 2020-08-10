@@ -3,6 +3,7 @@ package bolt
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,31 +16,41 @@ import (
 	"go.uber.org/zap"
 )
 
-// check that *KVStore implement kv.Store interface.
-var _ kv.Store = (*KVStore)(nil)
-
-// ensure *KVStore implements kv.AutoMigrationStore.
-var _ kv.AutoMigrationStore = (*KVStore)(nil)
+// check that *KVStore implement kv.SchemaStore interface.
+var _ kv.SchemaStore = (*KVStore)(nil)
 
 // KVStore is a kv.Store backed by boltdb.
 type KVStore struct {
 	path string
 	db   *bolt.DB
 	log  *zap.Logger
+
+	noSync bool
+}
+
+type KVOption func(*KVStore)
+
+// WithNoSync WARNING: this is useful for tests only
+// this skips fsyncing on every commit to improve
+// write performance in exchange for no guarantees
+// that the db will persist.
+func WithNoSync(s *KVStore) {
+	s.noSync = true
 }
 
 // NewKVStore returns an instance of KVStore with the file at
 // the provided path.
-func NewKVStore(log *zap.Logger, path string) *KVStore {
-	return &KVStore{
+func NewKVStore(log *zap.Logger, path string, opts ...KVOption) *KVStore {
+	store := &KVStore{
 		path: path,
 		log:  log,
 	}
-}
 
-// AutoMigrate returns itself as it is safe to automatically apply migrations on initialization.
-func (s *KVStore) AutoMigrate() kv.Store {
-	return s
+	for _, opt := range opts {
+		opt(store)
+	}
+
+	return store
 }
 
 // Open creates boltDB file it doesn't exists and opens it otherwise.
@@ -62,6 +73,8 @@ func (s *KVStore) Open(ctx context.Context) error {
 		return fmt.Errorf("unable to open boltdb file %v", err)
 	}
 	s.db = db
+
+	db.NoSync = s.noSync
 
 	s.log.Info("Resources opened", zap.String("path", s.path))
 	return nil
@@ -133,6 +146,27 @@ func (s *KVStore) Update(ctx context.Context, fn func(tx kv.Tx) error) error {
 	})
 }
 
+// CreateBucket creates a bucket in the underlying boltdb store if it
+// does not already exist
+func (s *KVStore) CreateBucket(ctx context.Context, name []byte) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(name)
+		return err
+	})
+}
+
+// DeleteBucket creates a bucket in the underlying boltdb store if it
+// does not already exist
+func (s *KVStore) DeleteBucket(ctx context.Context, name []byte) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.DeleteBucket(name); err != nil && !errors.Is(err, bolt.ErrBucketNotFound) {
+			return err
+		}
+
+		return nil
+	})
+}
+
 // Backup copies all K:Vs to a writer, in BoltDB format.
 func (s *KVStore) Backup(ctx context.Context, w io.Writer) error {
 	span, _ := tracing.StartSpanFromContext(ctx)
@@ -160,22 +194,11 @@ func (tx *Tx) WithContext(ctx context.Context) {
 	tx.ctx = ctx
 }
 
-// createBucketIfNotExists creates a bucket with the provided byte slice.
-func (tx *Tx) createBucketIfNotExists(b []byte) (*Bucket, error) {
-	bkt, err := tx.tx.CreateBucketIfNotExists(b)
-	if err != nil {
-		return nil, err
-	}
-	return &Bucket{
-		bucket: bkt,
-	}, nil
-}
-
 // Bucket retrieves the bucket named b.
 func (tx *Tx) Bucket(b []byte) (kv.Bucket, error) {
 	bkt := tx.tx.Bucket(b)
 	if bkt == nil {
-		return tx.createBucketIfNotExists(b)
+		return nil, fmt.Errorf("bucket %q: %w", string(b), kv.ErrBucketNotFound)
 	}
 	return &Bucket{
 		bucket: bkt,

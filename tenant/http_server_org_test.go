@@ -20,11 +20,8 @@ func initHttpOrgService(f itesting.OrganizationFields, t *testing.T) (influxdb.O
 	if err != nil {
 		t.Fatal(err)
 	}
-	storage, err := tenant.NewStore(s)
-	if err != nil {
-		t.Fatal(err)
-	}
 
+	storage := tenant.NewStore(s)
 	svc := tenant.NewService(storage)
 	ctx := context.Background()
 	for _, o := range f.Organizations {
@@ -33,7 +30,7 @@ func initHttpOrgService(f itesting.OrganizationFields, t *testing.T) (influxdb.O
 		}
 	}
 
-	handler := tenant.NewHTTPOrgHandler(zaptest.NewLogger(t), svc, nil, nil, nil)
+	handler := tenant.NewHTTPOrgHandler(zaptest.NewLogger(t), svc, nil, nil)
 	r := chi.NewRouter()
 	r.Mount(handler.Prefix(), handler)
 	server := httptest.NewServer(r)

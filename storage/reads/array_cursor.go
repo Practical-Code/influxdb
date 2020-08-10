@@ -17,94 +17,36 @@ func (v *singleValue) Value(key string) (interface{}, bool) {
 }
 
 func newAggregateArrayCursor(ctx context.Context, agg *datatypes.Aggregate, cursor cursors.Cursor) cursors.Cursor {
+	switch agg.Type {
+	case datatypes.AggregateTypeFirst, datatypes.AggregateTypeLast:
+		return newLimitArrayCursor(cursor)
+	}
+	return newWindowAggregateArrayCursor(ctx, agg, 0, 0, cursor)
+}
+
+func newWindowAggregateArrayCursor(ctx context.Context, agg *datatypes.Aggregate, every, offset int64, cursor cursors.Cursor) cursors.Cursor {
 	if cursor == nil {
 		return nil
 	}
 
 	switch agg.Type {
 	case datatypes.AggregateTypeCount:
-		return newCountArrayCursor(cursor)
+		return newWindowCountArrayCursor(cursor, every, offset)
 	case datatypes.AggregateTypeSum:
-		return newSumArrayCursor(cursor)
-	default:
-		panic("invalid aggregate")
-	}
-}
-
-func newWindowAggregateArrayCursor(ctx context.Context, req *datatypes.ReadWindowAggregateRequest, cursor cursors.Cursor) cursors.Cursor {
-	if cursor == nil {
-		return nil
-	}
-
-	switch req.Aggregate[0].Type {
-	case datatypes.AggregateTypeCount:
-		return newWindowCountArrayCursor(cursor, req)
+		return newWindowSumArrayCursor(cursor, every, offset)
+	case datatypes.AggregateTypeFirst:
+		return newWindowFirstArrayCursor(cursor, every, offset)
+	case datatypes.AggregateTypeLast:
+		return newWindowLastArrayCursor(cursor, every, offset)
+	case datatypes.AggregateTypeMin:
+		return newWindowMinArrayCursor(cursor, every, offset)
+	case datatypes.AggregateTypeMax:
+		return newWindowMaxArrayCursor(cursor, every, offset)
+	case datatypes.AggregateTypeMean:
+		return newWindowMeanArrayCursor(cursor, every, offset)
 	default:
 		// TODO(sgc): should be validated higher up
 		panic("invalid aggregate")
-	}
-}
-
-func newSumArrayCursor(cur cursors.Cursor) cursors.Cursor {
-	switch cur := cur.(type) {
-	case cursors.FloatArrayCursor:
-		return newFloatArraySumCursor(cur)
-	case cursors.IntegerArrayCursor:
-		return newIntegerArraySumCursor(cur)
-	case cursors.UnsignedArrayCursor:
-		return newUnsignedArraySumCursor(cur)
-	default:
-		// TODO(sgc): propagate an error instead?
-		return nil
-	}
-}
-
-func newCountArrayCursor(cur cursors.Cursor) cursors.Cursor {
-	switch cur := cur.(type) {
-	case cursors.FloatArrayCursor:
-		return &integerFloatCountArrayCursor{FloatArrayCursor: cur}
-	case cursors.IntegerArrayCursor:
-		return &integerIntegerCountArrayCursor{IntegerArrayCursor: cur}
-	case cursors.UnsignedArrayCursor:
-		return &integerUnsignedCountArrayCursor{UnsignedArrayCursor: cur}
-	case cursors.StringArrayCursor:
-		return &integerStringCountArrayCursor{StringArrayCursor: cur}
-	case cursors.BooleanArrayCursor:
-		return &integerBooleanCountArrayCursor{BooleanArrayCursor: cur}
-	default:
-		panic(fmt.Sprintf("unreachable: %T", cur))
-	}
-}
-
-func newWindowCountArrayCursor(cur cursors.Cursor, req *datatypes.ReadWindowAggregateRequest) cursors.Cursor {
-	switch cur := cur.(type) {
-	case cursors.FloatArrayCursor:
-		return &integerFloatWindowCountArrayCursor{
-			FloatArrayCursor: cur,
-			every:            req.WindowEvery,
-		}
-	case cursors.IntegerArrayCursor:
-		return &integerIntegerWindowCountArrayCursor{
-			IntegerArrayCursor: cur,
-			every:              req.WindowEvery,
-		}
-	case cursors.UnsignedArrayCursor:
-		return &integerUnsignedWindowCountArrayCursor{
-			UnsignedArrayCursor: cur,
-			every:               req.WindowEvery,
-		}
-	case cursors.StringArrayCursor:
-		return &integerStringWindowCountArrayCursor{
-			StringArrayCursor: cur,
-			every:             req.WindowEvery,
-		}
-	case cursors.BooleanArrayCursor:
-		return &integerBooleanWindowCountArrayCursor{
-			BooleanArrayCursor: cur,
-			every:              req.WindowEvery,
-		}
-	default:
-		panic(fmt.Sprintf("unreachable: %T", cur))
 	}
 }
 

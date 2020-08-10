@@ -17,6 +17,7 @@ import (
 	"github.com/influxdata/influxdb/v2/models"
 	"github.com/influxdata/influxdb/v2/pkg/bloom"
 	"github.com/influxdata/influxdb/v2/pkg/lifecycle"
+	"github.com/influxdata/influxdb/v2/pkg/mincore"
 	"github.com/influxdata/influxdb/v2/pkg/mmap"
 	"github.com/influxdata/influxdb/v2/tsdb"
 	"github.com/influxdata/influxdb/v2/tsdb/seriesfile"
@@ -453,7 +454,7 @@ func (f *LogFile) TagValueIterator(name, key []byte) TagValueIterator {
 		return nil
 	}
 
-	return tk.TagValueIterator()
+	return tk.TagValueIterator(nil)
 }
 
 // deleteTagKey adds a tombstone for a tag key to the log file without a lock.
@@ -1054,6 +1055,7 @@ func (f *LogFile) writeMeasurementBlockTo(w io.Writer, names []string, info *log
 		mm := f.mms[name]
 		mmInfo := info.mms[name]
 		assert(mmInfo != nil, "measurement info not found")
+		//lint:ignore SA5011 mmInfo is flagged as being possibly nil because of the assertion
 		mw.Add(mm.name, mm.deleted, mmInfo.offset, mmInfo.size, mm.seriesIDs())
 	}
 
@@ -1389,7 +1391,7 @@ func (tk *logTagKey) bytes() int {
 func (tk *logTagKey) Key() []byte   { return tk.name }
 func (tk *logTagKey) Deleted() bool { return tk.deleted }
 
-func (tk *logTagKey) TagValueIterator() TagValueIterator {
+func (tk *logTagKey) TagValueIterator(_ *mincore.Limiter) TagValueIterator {
 	a := make([]logTagValue, 0, len(tk.tagValues))
 	for _, v := range tk.tagValues {
 		a = append(a, v)

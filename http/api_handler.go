@@ -12,6 +12,7 @@ import (
 	"github.com/influxdata/influxdb/v2/kit/feature"
 	"github.com/influxdata/influxdb/v2/kit/prom"
 	kithttp "github.com/influxdata/influxdb/v2/kit/transport/http"
+	"github.com/influxdata/influxdb/v2/models"
 	"github.com/influxdata/influxdb/v2/query"
 	"github.com/influxdata/influxdb/v2/storage"
 	"github.com/prometheus/client_golang/prometheus"
@@ -121,17 +122,12 @@ func WithResourceHandler(resHandler kithttp.ResourceHandler) APIHandlerOptFn {
 // NewAPIHandler constructs all api handlers beneath it and returns an APIHandler
 func NewAPIHandler(b *APIBackend, opts ...APIHandlerOptFn) *APIHandler {
 	h := &APIHandler{
-		Router: newBaseChiRouter(b.HTTPErrorHandler),
+		Router: NewBaseChiRouter(kithttp.NewAPI(kithttp.WithLog(b.Logger))),
 	}
 
-	noAuthUserResourceMappingService := b.UserResourceMappingService
 	b.UserResourceMappingService = authorizer.NewURMService(b.OrgLookupService, b.UserResourceMappingService)
 
 	h.Mount("/api/v2", serveLinksHandler(b.HTTPErrorHandler))
-
-	bucketBackend := NewBucketBackend(b.Logger.With(zap.String("handler", "bucket")), b)
-	bucketBackend.BucketService = authorizer.NewBucketService(b.BucketService, noAuthUserResourceMappingService)
-	h.Mount(prefixBuckets, NewBucketHandler(b.Logger, bucketBackend))
 
 	checkBackend := NewCheckBackend(b.Logger.With(zap.String("handler", "check")), b)
 	checkBackend.CheckService = authorizer.NewCheckService(b.CheckService,
@@ -164,11 +160,6 @@ func NewAPIHandler(b *APIBackend, opts ...APIHandlerOptFn) *APIHandler {
 		b.UserResourceMappingService, b.OrganizationService)
 	h.Mount(prefixNotificationRules, NewNotificationRuleHandler(b.Logger, notificationRuleBackend))
 
-	orgBackend := NewOrgBackend(b.Logger.With(zap.String("handler", "org")), b)
-	orgBackend.OrganizationService = authorizer.NewOrgService(b.OrganizationService)
-	orgBackend.SecretService = authorizer.NewSecretService(b.SecretService)
-	h.Mount(prefixOrganizations, NewOrgHandler(b.Logger, orgBackend))
-
 	scraperBackend := NewScraperBackend(b.Logger.With(zap.String("handler", "scraper")), b)
 	scraperBackend.ScraperStorageService = authorizer.NewScraperTargetStoreService(b.ScraperTargetStoreService,
 		b.UserResourceMappingService,
@@ -177,7 +168,7 @@ func NewAPIHandler(b *APIBackend, opts ...APIHandlerOptFn) *APIHandler {
 
 	sourceBackend := NewSourceBackend(b.Logger.With(zap.String("handler", "source")), b)
 	sourceBackend.SourceService = authorizer.NewSourceService(b.SourceService)
-	sourceBackend.BucketService = authorizer.NewBucketService(b.BucketService, noAuthUserResourceMappingService)
+	sourceBackend.BucketService = authorizer.NewBucketService(b.BucketService)
 	h.Mount(prefixSources, NewSourceHandler(b.Logger, sourceBackend))
 
 	h.Mount("/api/v2/swagger.json", newSwaggerLoader(b.Logger.With(zap.String("service", "swagger-loader")), b.HTTPErrorHandler))
@@ -203,14 +194,16 @@ func NewAPIHandler(b *APIBackend, opts ...APIHandlerOptFn) *APIHandler {
 	backupBackend.BackupService = authorizer.NewBackupService(backupBackend.BackupService)
 	h.Mount(prefixBackup, NewBackupHandler(backupBackend))
 
-	h.Mount(dbrp.PrefixDBRP, dbrp.NewHTTPHandler(b.Logger, b.DBRPService))
+	h.Mount(dbrp.PrefixDBRP, dbrp.NewHTTPHandler(b.Logger, b.DBRPService, b.OrganizationService))
 
 	writeBackend := NewWriteBackend(b.Logger.With(zap.String("handler", "write")), b)
 	h.Mount(prefixWrite, NewWriteHandler(b.Logger, writeBackend,
 		WithMaxBatchSizeBytes(b.MaxBatchSizeBytes),
-		WithParserMaxBytes(b.WriteParserMaxBytes),
-		WithParserMaxLines(b.WriteParserMaxLines),
-		WithParserMaxValues(b.WriteParserMaxValues),
+		WithParserOptions(
+			models.WithParserMaxBytes(b.WriteParserMaxBytes),
+			models.WithParserMaxLines(b.WriteParserMaxLines),
+			models.WithParserMaxValues(b.WriteParserMaxValues),
+		),
 	))
 
 	for _, o := range opts {

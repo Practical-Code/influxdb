@@ -1,12 +1,11 @@
 // Libraries
 import React, {FunctionComponent} from 'react'
-import {connect} from 'react-redux'
+import {connect, ConnectedProps} from 'react-redux'
 import {Config, Table} from '@influxdata/giraffe'
 import {flatMap} from 'lodash'
 
 // Components
 import EmptyGraphMessage from 'src/shared/components/EmptyGraphMessage'
-import GraphLoadingDots from 'src/shared/components/GraphLoadingDots'
 import ThresholdMarkers from 'src/shared/components/ThresholdMarkers'
 import EventMarkers from 'src/shared/components/EventMarkers'
 
@@ -20,7 +19,6 @@ import {DEFAULT_LINE_COLORS} from 'src/shared/constants/graphColorPalettes'
 
 // Types
 import {
-  RemoteDataState,
   CheckViewProperties,
   TimeZone,
   CheckType,
@@ -33,28 +31,23 @@ import {updateThresholds} from 'src/alerting/actions/alertBuilder'
 const X_COLUMN = '_time'
 const Y_COLUMN = '_value'
 
-interface DispatchProps {
-  onUpdateThresholds: typeof updateThresholds
-}
-
 interface OwnProps {
   table: Table
   checkType: CheckType
   thresholds: Threshold[]
   fluxGroupKeyUnion: string[]
-  loading: RemoteDataState
   timeZone: TimeZone
   viewProperties: CheckViewProperties
   children: (config: Config) => JSX.Element
   statuses: StatusRow[][]
 }
 
-type Props = OwnProps & DispatchProps
+type ReduxProps = ConnectedProps<typeof connector>
+type Props = OwnProps & ReduxProps
 
 const CheckPlot: FunctionComponent<Props> = ({
   table,
   fluxGroupKeyUnion,
-  loading,
   children,
   timeZone,
   statuses,
@@ -156,17 +149,15 @@ const CheckPlot: FunctionComponent<Props> = ({
 
   return (
     <div className="time-series-container time-series-container--alert-check">
-      {loading === RemoteDataState.Loading && <GraphLoadingDots />}
       {children(config)}
     </div>
   )
 }
 
-const mdtp: DispatchProps = {
+const mdtp = {
   onUpdateThresholds: updateThresholds,
 }
 
-export default connect<{}, DispatchProps, {}>(
-  null,
-  mdtp
-)(CheckPlot)
+const connector = connect(null, mdtp)
+
+export default connector(CheckPlot)

@@ -14,6 +14,10 @@ import {
 } from 'src/shared/constants/thresholds'
 import {pastHourTimeRange} from 'src/shared/constants/timeRanges'
 import {DEFAULT_TIME_RANGE} from 'src/shared/constants/timeRanges'
+import {
+  AGG_WINDOW_AUTO,
+  DEFAULT_FILLVALUES,
+} from 'src/timeMachine/constants/queryBuilder'
 
 // Types
 import {
@@ -85,34 +89,39 @@ export interface TimeMachinesState {
   }
 }
 
-export const initialStateHelper = (): TimeMachineState => ({
-  timeRange: pastHourTimeRange,
-  autoRefresh: AUTOREFRESH_DEFAULT,
-  view: createView(),
-  draftQueries: [{...defaultViewQuery(), hidden: false}],
-  isViewingRawData: false,
-  isViewingVisOptions: false,
-  activeTab: 'queries',
-  activeQueryIndex: 0,
-  queryResults: initialQueryResultsState(),
-  queryBuilder: {
-    buckets: [],
-    bucketsStatus: RemoteDataState.NotStarted,
-    aggregateWindow: {period: 'auto'},
-    functions: [],
-    tags: [
-      {
-        aggregateFunctionType: 'filter',
-        keys: [],
-        keysSearchTerm: '',
-        keysStatus: RemoteDataState.NotStarted,
-        values: [],
-        valuesSearchTerm: '',
-        valuesStatus: RemoteDataState.NotStarted,
+export const initialStateHelper = (): TimeMachineState => {
+  return {
+    timeRange: pastHourTimeRange,
+    autoRefresh: AUTOREFRESH_DEFAULT,
+    view: createView(),
+    draftQueries: [{...defaultViewQuery(), hidden: false}],
+    isViewingRawData: false,
+    isViewingVisOptions: false,
+    activeTab: 'queries',
+    activeQueryIndex: 0,
+    queryResults: initialQueryResultsState(),
+    queryBuilder: {
+      buckets: [],
+      bucketsStatus: RemoteDataState.NotStarted,
+      aggregateWindow: {
+        period: AGG_WINDOW_AUTO,
+        fillValues: DEFAULT_FILLVALUES,
       },
-    ],
-  },
-})
+      functions: [[{name: 'mean'}]],
+      tags: [
+        {
+          aggregateFunctionType: 'filter',
+          keys: [],
+          keysSearchTerm: '',
+          keysStatus: RemoteDataState.NotStarted,
+          values: [],
+          valuesSearchTerm: '',
+          valuesStatus: RemoteDataState.NotStarted,
+        },
+      ],
+    },
+  }
+}
 
 export const initialState = (): TimeMachinesState => ({
   activeTimeMachineID: 'de',
@@ -168,11 +177,14 @@ export const timeMachinesReducer = (
     const {activeTimeMachineID, initialState} = action.payload
     const activeTimeMachine = state.timeMachines[activeTimeMachineID]
     const view = initialState.view || activeTimeMachine.view
+
     const draftQueries = map(cloneDeep(view.properties.queries), q => ({
       ...q,
       hidden: false,
     }))
+
     const queryBuilder = initialQueryBuilderState(draftQueries[0].builderConfig)
+
     const queryResults = initialQueryResultsState()
     const timeRange =
       activeTimeMachineID === 'alerting'
@@ -252,7 +264,6 @@ export const timeMachineReducer = (
     case 'SET_ACTIVE_QUERY_TEXT': {
       const {text} = action.payload
       const draftQueries = [...state.draftQueries]
-
       draftQueries[state.activeQueryIndex] = {
         ...draftQueries[state.activeQueryIndex],
         text,
@@ -312,12 +323,6 @@ export const timeMachineReducer = (
       return {...state, isViewingVisOptions: !state.isViewingVisOptions}
     }
 
-    case 'SET_AXES': {
-      const {axes} = action.payload
-
-      return setViewProperties(state, {axes})
-    }
-
     case 'SET_GEOM': {
       const {geom} = action.payload
 
@@ -362,21 +367,13 @@ export const timeMachineReducer = (
       return setYAxis(state, {base})
     }
 
-    case 'SET_Y_AXIS_SCALE': {
-      const {scale} = action.payload
-
-      return setYAxis(state, {scale})
-    }
-
     case 'SET_X_COLUMN': {
       const {xColumn} = action.payload
-
       return setViewProperties(state, {xColumn})
     }
 
     case 'SET_Y_COLUMN': {
       const {yColumn} = action.payload
-
       return setViewProperties(state, {yColumn})
     }
 
@@ -557,6 +554,12 @@ export const timeMachineReducer = (
       return setViewProperties(state, {shadeBelow})
     }
 
+    case 'SET_HOVER_DIMENSION': {
+      const {hoverDimension} = action.payload
+
+      return setViewProperties(state, {hoverDimension})
+    }
+
     case 'SET_BACKGROUND_THRESHOLD_COLORING': {
       const viewColors = state.view.properties.colors as Color[]
 
@@ -590,12 +593,6 @@ export const timeMachineReducer = (
       return setViewProperties(state, {colors})
     }
 
-    case 'SET_STATIC_LEGEND': {
-      const {staticLegend} = action.payload
-
-      return setViewProperties(state, {staticLegend})
-    }
-
     case 'EDIT_ACTIVE_QUERY_WITH_BUILDER': {
       return produce(state, draftState => {
         const query = draftState.draftQueries[draftState.activeQueryIndex]
@@ -604,6 +601,16 @@ export const timeMachineReducer = (
         query.hidden = false
 
         buildAllQueries(draftState)
+      })
+    }
+
+    case 'RESET_QUERY_AND_EDIT_WITH_BUILDER': {
+      return produce(state, draftState => {
+        draftState.draftQueries[draftState.activeQueryIndex] = {
+          ...defaultViewQuery(),
+          editMode: 'builder',
+          hidden: false,
+        }
       })
     }
 
@@ -864,9 +871,13 @@ export const timeMachineReducer = (
       return produce(state, draftState => {
         const {functions} = action.payload
 
+        const functionsWithNames = functions.map(f => ({
+          name: f,
+        }))
+
         draftState.draftQueries[
           draftState.activeQueryIndex
-        ].builderConfig.functions = functions
+        ].builderConfig.functions = functionsWithNames
 
         buildActiveQuery(draftState)
       })
@@ -877,7 +888,21 @@ export const timeMachineReducer = (
         const {activeQueryIndex, draftQueries} = draftState
         const {period} = action.payload
 
-        draftQueries[activeQueryIndex].builderConfig.aggregateWindow = {period}
+        draftQueries[
+          activeQueryIndex
+        ].builderConfig.aggregateWindow.period = period
+        buildActiveQuery(draftState)
+      })
+    }
+
+    case 'SET_AGGREGATE_FILL_VALUES': {
+      return produce(state, draftState => {
+        const {activeQueryIndex, draftQueries} = draftState
+        const {fillValues} = action.payload
+
+        draftQueries[
+          activeQueryIndex
+        ].builderConfig.aggregateWindow.fillValues = fillValues
         buildActiveQuery(draftState)
       })
     }
@@ -896,9 +921,7 @@ export const timeMachineReducer = (
     }
 
     case 'SET_FIELD_OPTIONS': {
-      const workingView = state.view as ExtractWorkingView<
-        typeof action.payload
-      >
+      const workingView = state.view
       const {fieldOptions} = action.payload
       const properties = {
         ...workingView.properties,
@@ -930,9 +953,7 @@ export const timeMachineReducer = (
     }
 
     case 'SET_TABLE_OPTIONS': {
-      const workingView = state.view as ExtractWorkingView<
-        typeof action.payload
-      >
+      const workingView = state.view
       const {tableOptions} = action.payload
       const properties = {...workingView.properties, tableOptions}
       const view = {...state.view, properties}
@@ -941,9 +962,7 @@ export const timeMachineReducer = (
     }
 
     case 'SET_TIME_FORMAT': {
-      const workingView = state.view as ExtractWorkingView<
-        typeof action.payload
-      >
+      const workingView = state.view
 
       const {timeFormat} = action.payload
       const properties = {...workingView.properties, timeFormat}
@@ -1030,14 +1049,15 @@ const convertView = (
 const initialQueryBuilderState = (
   builderConfig: BuilderConfig
 ): QueryBuilderState => {
+  const defaultFunctions = initialStateHelper().queryBuilder.functions
+  const [defaultTag] = initialStateHelper().queryBuilder.tags
   return {
     buckets: builderConfig.buckets,
     bucketsStatus: RemoteDataState.NotStarted,
-    functions: [],
-    aggregateWindow: {period: 'auto'},
+    functions: [...defaultFunctions],
+    aggregateWindow: {period: AGG_WINDOW_AUTO, fillValues: DEFAULT_FILLVALUES},
     tags: builderConfig.tags.map(() => {
-      const [defaultTag] = initialStateHelper().queryBuilder.tags
-      return defaultTag
+      return {...defaultTag}
     }),
   }
 }

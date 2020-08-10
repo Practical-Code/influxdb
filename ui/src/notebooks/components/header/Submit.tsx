@@ -1,10 +1,15 @@
 // Libraries
-import React, {FC, useContext, useEffect} from 'react'
+import React, {FC, useContext, useState, useEffect} from 'react'
 import {SubmitQueryButton} from 'src/timeMachine/components/SubmitQueryButton'
 import QueryProvider, {QueryContext} from 'src/notebooks/context/query'
-import {NotebookContext, PipeMeta} from 'src/notebooks/context/notebook'
+import {NotebookContext} from 'src/notebooks/context/notebook.current'
+import {ResultsContext} from 'src/notebooks/context/results'
 import {TimeContext} from 'src/notebooks/context/time'
 import {IconFont} from '@influxdata/clockface'
+import {notify} from 'src/shared/actions/notifications'
+
+// Utils
+import {event} from 'src/cloud/utils/reporting'
 
 // Types
 import {RemoteDataState} from 'src/types'
@@ -12,69 +17,140 @@ import {RemoteDataState} from 'src/types'
 const PREVIOUS_REGEXP = /__PREVIOUS_RESULT__/g
 const COMMENT_REMOVER = /(\/\*([\s\S]*?)\*\/)|(\/\/(.*)$)/gm
 
+const fakeNotify = notify
+
 export const Submit: FC = () => {
   const {query} = useContext(QueryContext)
-  const {id, pipes, updateResult, updateMeta} = useContext(NotebookContext)
+  const {id, notebook} = useContext(NotebookContext)
+  const {add, update} = useContext(ResultsContext)
   const {timeContext} = useContext(TimeContext)
+  const [isLoading, setLoading] = useState(RemoteDataState.NotStarted)
   const time = timeContext[id]
+  const tr = !!time && time.range
 
   useEffect(() => {
     submit()
-  }, [!!time && time.range])
+  }, [tr]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const forceUpdate = (id, data) => {
+    try {
+      update(id, data)
+    } catch (_e) {
+      add(id, data)
+    }
+  }
 
   const submit = () => {
-    pipes
-      .reduce((stages, pipe, index) => {
-        updateMeta(index, {loading: RemoteDataState.Loading} as PipeMeta)
+    event('Notebook Submit Button Clicked')
+    let queryIncludesPreviousResult = false
+    setLoading(RemoteDataState.Loading)
+    Promise.all(
+      notebook.data.allIDs
+        .reduce((stages, pipeID, index) => {
+          notebook.meta.update(pipeID, {loading: RemoteDataState.Loading})
+          const pipe = notebook.data.get(pipeID)
 
-        if (pipe.type === 'query') {
-          let text = pipe.queries[pipe.activeQuery].text.replace(
-            COMMENT_REMOVER,
-            ''
-          )
-          let requirements = {}
+          if (pipe.type === 'query') {
+            let text = pipe.queries[pipe.activeQuery].text.replace(
+              COMMENT_REMOVER,
+              ''
+            )
+            let requirements = {}
 
-          if (PREVIOUS_REGEXP.test(text)) {
-            requirements = {
-              ...(index === 0 ? {} : stages[stages.length - 1].requirements),
-              [`prev_${index}`]: stages[stages.length - 1].text,
+            if (!text.replace(/\s/g, '').length) {
+              if (stages.length) {
+                stages[stages.length - 1].instances.push(pipeID)
+              }
+              return stages
             }
-            text = text.replace(PREVIOUS_REGEXP, `prev_${index}`)
+
+            if (PREVIOUS_REGEXP.test(text)) {
+              requirements = {
+                ...(index === 0 ? {} : stages[stages.length - 1].requirements),
+                [`prev_${index}`]: stages[stages.length - 1].text,
+              }
+              text = text.replace(PREVIOUS_REGEXP, `prev_${index}`)
+              queryIncludesPreviousResult = true
+            }
+
+            stages.push({
+              text,
+              instances: [pipeID],
+              requirements,
+            })
+          } else if (pipe.type === 'data') {
+            const {bucketName} = pipe
+
+            const text = `from(bucket: "${bucketName}")|>range(start: v.timeRangeStart, stop: v.timeRangeStop)`
+
+            stages.push({
+              text,
+              instances: [pipeID],
+              requirements: {},
+            })
+          } else if (stages.length) {
+            stages[stages.length - 1].instances.push(pipeID)
           }
 
-          stages.push({
-            text,
-            instances: [index],
-            requirements,
-          })
+          return stages
+        }, [])
+        .map(queryStruct => {
+          const queryText =
+            Object.entries(queryStruct.requirements)
+              .map(([key, value]) => `${key} = (\n${value}\n)\n\n`)
+              .join('') + queryStruct.text
+
+          return query(queryText)
+            .then(response => {
+              queryStruct.instances.forEach(pipeID => {
+                forceUpdate(pipeID, response)
+                notebook.meta.update(pipeID, {loading: RemoteDataState.Done})
+              })
+            })
+            .catch(e => {
+              queryStruct.instances.forEach(pipeID => {
+                forceUpdate(pipeID, {
+                  error: e.message,
+                })
+                notebook.meta.update(pipeID, {loading: RemoteDataState.Error})
+              })
+            })
+        })
+    )
+
+      .then(() => {
+        event('Notebook Submit Resolved')
+
+        if (queryIncludesPreviousResult) {
+          event('flows_queryIncludesPreviousResult')
         } else {
-          stages[stages.length - 1].instances.push(index)
+          event('flows_queryExcludesPreviousResult')
         }
 
-        return stages
-      }, [])
-      .map(queryStruct => {
-        const queryText =
-          Object.entries(queryStruct.requirements)
-            .map(([key, value]) => `${key} = (\n${value}\n)\n\n`)
-            .join('') + queryStruct.text
+        setLoading(RemoteDataState.Done)
+      })
+      .catch(e => {
+        event('Notebook Submit Resolved')
 
-        return query(queryText).then(response => {
-          queryStruct.instances.forEach(index => {
-            updateMeta(index, {loading: RemoteDataState.Done} as PipeMeta)
-            updateResult(index, response)
-          })
-        })
+        // NOTE: this shouldn't fire, but lets wrap it for completeness
+        setLoading(RemoteDataState.Error)
+        throw e
       })
   }
 
+  const hasQueries = notebook.data.all
+    .map(p => p.type)
+    .filter(p => p === 'query' || p === 'data').length
+
   return (
     <SubmitQueryButton
-      text="Run Notebook"
+      text="Run Flow"
+      className="flows-run-flow"
       icon={IconFont.Play}
-      submitButtonDisabled={false}
-      queryStatus={RemoteDataState.NotStarted}
+      submitButtonDisabled={!hasQueries}
+      queryStatus={isLoading}
       onSubmit={submit}
+      onNotify={fakeNotify}
     />
   )
 }

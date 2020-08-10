@@ -30,6 +30,20 @@ func BackendExample() BoolFlag {
 	return backendExample
 }
 
+var communityTemplates = MakeBoolFlag(
+	"Community Templates",
+	"communityTemplates",
+	"Bucky, Johnny Steenbergen (Berg)",
+	false,
+	Permanent,
+	true,
+)
+
+// CommunityTemplates - Replace current template uploading functionality with community driven templates
+func CommunityTemplates() BoolFlag {
+	return communityTemplates
+}
+
 var frontendExample = MakeIntFlag(
 	"Frontend Example",
 	"frontendExample",
@@ -44,32 +58,32 @@ func FrontendExample() IntFlag {
 	return frontendExample
 }
 
-var pushDownWindowAggregateCount = MakeBoolFlag(
-	"Push Down Window Aggregate Count",
-	"pushDownWindowAggregateCount",
+var pushDownWindowAggregateMean = MakeBoolFlag(
+	"Push Down Window Aggregate Mean",
+	"pushDownWindowAggregateMean",
 	"Query Team",
 	false,
 	Temporary,
 	false,
 )
 
-// PushDownWindowAggregateCount - Enable Count variant of PushDownWindowAggregateRule and PushDownBareAggregateRule
-func PushDownWindowAggregateCount() BoolFlag {
-	return pushDownWindowAggregateCount
+// PushDownWindowAggregateMean - Enable Mean variant of PushDownWindowAggregateRule and PushDownBareAggregateRule
+func PushDownWindowAggregateMean() BoolFlag {
+	return pushDownWindowAggregateMean
 }
 
-var pushDownWindowAggregateRest = MakeBoolFlag(
-	"Push Down Window Aggregate Rest",
-	"pushDownWindowAggregateRest",
+var groupWindowAggregateTranspose = MakeBoolFlag(
+	"Group Window Aggregate Transpose",
+	"groupWindowAggregateTranspose",
 	"Query Team",
 	false,
 	Temporary,
 	false,
 )
 
-// PushDownWindowAggregateRest - Enable non-Count variants of PushDownWindowAggregateRule and PushDownWindowAggregateRule (stage 2)
-func PushDownWindowAggregateRest() BoolFlag {
-	return pushDownWindowAggregateRest
+// GroupWindowAggregateTranspose - Enables the GroupWindowAggregateTransposeRule for all enabled window aggregates
+func GroupWindowAggregateTranspose() BoolFlag {
+	return groupWindowAggregateTranspose
 }
 
 var newAuth = MakeBoolFlag(
@@ -86,34 +100,6 @@ func NewAuthPackage() BoolFlag {
 	return newAuth
 }
 
-var sessionService = MakeBoolFlag(
-	"Session Service",
-	"sessionService",
-	"Lyon Hill",
-	false,
-	Temporary,
-	true,
-)
-
-// SessionService - A temporary switching system for the new session system
-func SessionService() BoolFlag {
-	return sessionService
-}
-
-var pushDownGroupAggregateCount = MakeBoolFlag(
-	"Push Down Group Aggregate Count",
-	"pushDownGroupAggregateCount",
-	"Query Team",
-	false,
-	Temporary,
-	false,
-)
-
-// PushDownGroupAggregateCount - Enable the count variant of PushDownGroupAggregate planner rule
-func PushDownGroupAggregateCount() BoolFlag {
-	return pushDownGroupAggregateCount
-}
-
 var newLabels = MakeBoolFlag(
 	"New Label Package",
 	"newLabels",
@@ -128,26 +114,168 @@ func NewLabelPackage() BoolFlag {
 	return newLabels
 }
 
+var hydratevars = MakeBoolFlag(
+	"New Hydrate Vars Functionality",
+	"hydratevars",
+	"Ariel Salem / Monitoring Team",
+	false,
+	Temporary,
+	true,
+)
+
+// NewHydrateVarsFunctionality - Enables a minimalistic variable hydration
+func NewHydrateVarsFunctionality() BoolFlag {
+	return hydratevars
+}
+
+var queryCacheForDashboards = MakeBoolFlag(
+	"Query Cache for Dashboards UI",
+	"queryCacheForDashboards",
+	"Ariel Salem / Monitoring Team",
+	false,
+	Temporary,
+	true,
+)
+
+// QueryCacheForDashboardsUi - Enables a Dashboard Cache on the uI
+func QueryCacheForDashboardsUi() BoolFlag {
+	return queryCacheForDashboards
+}
+
+var memoryOptimizedFill = MakeBoolFlag(
+	"Memory Optimized Fill",
+	"memoryOptimizedFill",
+	"Query Team",
+	false,
+	Temporary,
+	false,
+)
+
+// MemoryOptimizedFill - Enable the memory optimized fill()
+func MemoryOptimizedFill() BoolFlag {
+	return memoryOptimizedFill
+}
+
+var memoryOptimizedSchemaMutation = MakeBoolFlag(
+	"Memory Optimized Schema Mutation",
+	"memoryOptimizedSchemaMutation",
+	"Query Team",
+	false,
+	Temporary,
+	false,
+)
+
+// MemoryOptimizedSchemaMutation - Enable the memory optimized schema mutation functions
+func MemoryOptimizedSchemaMutation() BoolFlag {
+	return memoryOptimizedSchemaMutation
+}
+
+var simpleTaskOptionsExtraction = MakeBoolFlag(
+	"Simple Task Options Extraction",
+	"simpleTaskOptionsExtraction",
+	"Brett Buddin",
+	false,
+	Temporary,
+	false,
+)
+
+// SimpleTaskOptionsExtraction - Simplified task options extraction to avoid undefined functions when saving tasks
+func SimpleTaskOptionsExtraction() BoolFlag {
+	return simpleTaskOptionsExtraction
+}
+
+var useUserPermission = MakeBoolFlag(
+	"Use User Permission",
+	"useUserPermission",
+	"Lyon Hill",
+	false,
+	Temporary,
+	false,
+)
+
+// UseUserPermission - When enabled we will use the new user service permission function
+func UseUserPermission() BoolFlag {
+	return useUserPermission
+}
+
+var mergeFiltersRule = MakeBoolFlag(
+	"Merged Filters Rule",
+	"mergeFiltersRule",
+	"Query Team",
+	false,
+	Temporary,
+	false,
+)
+
+// MergedFiltersRule - Create one filter combining multiple single return statements
+func MergedFiltersRule() BoolFlag {
+	return mergeFiltersRule
+}
+
+var notebooks = MakeBoolFlag(
+	"Notebooks",
+	"notebooks",
+	"Monitoring Team",
+	false,
+	Temporary,
+	true,
+)
+
+// Notebooks - Determine if the notebook feature's route and navbar icon are visible to the user
+func Notebooks() BoolFlag {
+	return notebooks
+}
+
+var pushDownGroupAggregateMinMax = MakeBoolFlag(
+	"Push Down Group Aggregate Min Max",
+	"pushDownGroupAggregateMinMax",
+	"Query Team",
+	false,
+	Temporary,
+	false,
+)
+
+// PushDownGroupAggregateMinMax - Enable the min and max variants of the PushDownGroupAggregate planner rule
+func PushDownGroupAggregateMinMax() BoolFlag {
+	return pushDownGroupAggregateMinMax
+}
+
 var all = []Flag{
 	appMetrics,
 	backendExample,
+	communityTemplates,
 	frontendExample,
-	pushDownWindowAggregateCount,
-	pushDownWindowAggregateRest,
+	pushDownWindowAggregateMean,
+	groupWindowAggregateTranspose,
 	newAuth,
-	sessionService,
-	pushDownGroupAggregateCount,
 	newLabels,
+	hydratevars,
+	queryCacheForDashboards,
+	memoryOptimizedFill,
+	memoryOptimizedSchemaMutation,
+	simpleTaskOptionsExtraction,
+	useUserPermission,
+	mergeFiltersRule,
+	notebooks,
+	pushDownGroupAggregateMinMax,
 }
 
 var byKey = map[string]Flag{
-	"appMetrics":                   appMetrics,
-	"backendExample":               backendExample,
-	"frontendExample":              frontendExample,
-	"pushDownWindowAggregateCount": pushDownWindowAggregateCount,
-	"pushDownWindowAggregateRest":  pushDownWindowAggregateRest,
-	"newAuth":                      newAuth,
-	"sessionService":               sessionService,
-	"pushDownGroupAggregateCount":  pushDownGroupAggregateCount,
-	"newLabels":                    newLabels,
+	"appMetrics":                    appMetrics,
+	"backendExample":                backendExample,
+	"communityTemplates":            communityTemplates,
+	"frontendExample":               frontendExample,
+	"pushDownWindowAggregateMean":   pushDownWindowAggregateMean,
+	"groupWindowAggregateTranspose": groupWindowAggregateTranspose,
+	"newAuth":                       newAuth,
+	"newLabels":                     newLabels,
+	"hydratevars":                   hydratevars,
+	"queryCacheForDashboards":       queryCacheForDashboards,
+	"memoryOptimizedFill":           memoryOptimizedFill,
+	"memoryOptimizedSchemaMutation": memoryOptimizedSchemaMutation,
+	"simpleTaskOptionsExtraction":   simpleTaskOptionsExtraction,
+	"useUserPermission":             useUserPermission,
+	"mergeFiltersRule":              mergeFiltersRule,
+	"notebooks":                     notebooks,
+	"pushDownGroupAggregateMinMax":  pushDownGroupAggregateMinMax,
 }

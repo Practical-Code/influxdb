@@ -1,5 +1,5 @@
 // Libraries
-import React, {FunctionComponent, useMemo} from 'react'
+import React, {FC, useMemo} from 'react'
 import {
   Config,
   Table,
@@ -10,7 +10,6 @@ import {
 
 // Components
 import EmptyGraphMessage from 'src/shared/components/EmptyGraphMessage'
-import GraphLoadingDots from 'src/shared/components/GraphLoadingDots'
 
 // Utils
 import {
@@ -33,29 +32,21 @@ import {DEFAULT_LINE_COLORS} from 'src/shared/constants/graphColorPalettes'
 import {INVALID_DATA_COPY} from 'src/shared/copy/cell'
 
 // Types
-import {
-  RemoteDataState,
-  XYViewProperties,
-  TimeZone,
-  TimeRange,
-  Theme,
-} from 'src/types'
+import {XYViewProperties, TimeZone, TimeRange, Theme} from 'src/types'
 
 interface Props {
   children: (config: Config) => JSX.Element
   fluxGroupKeyUnion: string[]
-  loading: RemoteDataState
-  timeRange: TimeRange | null
+  timeRange?: TimeRange | null
   table: Table
   timeZone: TimeZone
   viewProperties: XYViewProperties
   theme: Theme
 }
 
-const XYPlot: FunctionComponent<Props> = ({
+const XYPlot: FC<Props> = ({
   children,
   fluxGroupKeyUnion,
-  loading,
   timeRange,
   table,
   timeZone,
@@ -65,6 +56,7 @@ const XYPlot: FunctionComponent<Props> = ({
     xColumn: storedXColumn,
     yColumn: storedYColumn,
     shadeBelow,
+    hoverDimension,
     axes: {
       x: {
         label: xAxisLabel,
@@ -88,8 +80,10 @@ const XYPlot: FunctionComponent<Props> = ({
 }) => {
   const storedXDomain = useMemo(() => parseXBounds(xBounds), [xBounds])
   const storedYDomain = useMemo(() => parseYBounds(yBounds), [yBounds])
-  const xColumn = storedXColumn || defaultXColumn(table)
-  const yColumn = storedYColumn || defaultYColumn(table)
+  const xColumn = storedXColumn || defaultXColumn(table, '_time')
+  const yColumn =
+    (table.columnKeys.includes(storedYColumn) && storedYColumn) ||
+    defaultYColumn(table)
 
   const columnKeys = table.columnKeys
 
@@ -98,10 +92,6 @@ const XYPlot: FunctionComponent<Props> = ({
     columnKeys.includes(xColumn) &&
     yColumn &&
     columnKeys.includes(yColumn)
-
-  if (!isValidView) {
-    return <EmptyGraphMessage message={INVALID_DATA_COPY} />
-  }
 
   const colorHexes =
     colors && colors.length
@@ -131,7 +121,7 @@ const XYPlot: FunctionComponent<Props> = ({
       return getDomainDataFromLines(lineData, DomainLabel.Y)
     }
     return table.getColumn(yColumn, 'number')
-  }, [table, yColumn, position])
+  }, [table, yColumn, xColumn, position, colorHexes, groupKey])
 
   const [yDomain, onSetYDomain, onResetYDomain] = useVisYDomainSettings(
     storedYDomain,
@@ -188,16 +178,16 @@ const XYPlot: FunctionComponent<Props> = ({
         colors: colorHexes,
         shadeBelow: !!shadeBelow,
         shadeBelowOpacity: 0.08,
+        hoverDimension,
       },
     ],
   }
 
-  return (
-    <>
-      {loading === RemoteDataState.Loading && <GraphLoadingDots />}
-      {children(config)}
-    </>
-  )
+  if (!isValidView) {
+    return <EmptyGraphMessage message={INVALID_DATA_COPY} />
+  }
+
+  return children(config)
 }
 
 export default XYPlot

@@ -28,14 +28,11 @@ func initBoltOnboardingService(f influxdbtesting.OnboardingFields, t *testing.T)
 }
 
 func initOnboardingService(s kv.Store, f influxdbtesting.OnboardingFields, t *testing.T) influxdb.OnboardingService {
-	storage, err := tenant.NewStore(s)
-	if err != nil {
-		t.Fatal(err)
-	}
+	storage := tenant.NewStore(s)
 	ten := tenant.NewService(storage)
 
 	// we will need an auth service as well
-	svc := tenant.NewOnboardService(storage, kv.NewService(zaptest.NewLogger(t), s))
+	svc := tenant.NewOnboardService(ten, kv.NewService(zaptest.NewLogger(t), s))
 
 	ctx := context.Background()
 

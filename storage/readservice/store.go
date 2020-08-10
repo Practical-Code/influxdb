@@ -14,16 +14,32 @@ import (
 )
 
 type store struct {
-	viewer reads.Viewer
-	cap    WindowAggregateCapability
+	viewer    reads.Viewer
+	groupCap  GroupCapability
+	windowCap WindowAggregateCapability
 }
 
 // NewStore creates a store used to query time-series data.
 func NewStore(viewer reads.Viewer) reads.Store {
 	return &store{
 		viewer: viewer,
-		cap: WindowAggregateCapability{
+		groupCap: GroupCapability{
 			Count: true,
+			Sum:   true,
+			First: true,
+			Last:  true,
+			Min:   true,
+			Max:   true,
+		},
+		windowCap: WindowAggregateCapability{
+			Count:  true,
+			Sum:    true,
+			First:  true,
+			Last:   true,
+			Min:    true,
+			Max:    true,
+			Mean:   true,
+			Offset: true,
 		},
 	}
 }
@@ -49,6 +65,10 @@ func (s *store) ReadFilter(ctx context.Context, req *datatypes.ReadFilterRequest
 	}
 
 	return reads.NewFilteredResultSet(ctx, req, cur), nil
+}
+
+func (s *store) GetGroupCapability(ctx context.Context) reads.GroupCapability {
+	return s.groupCap
 }
 
 func (s *store) ReadGroup(ctx context.Context, req *datatypes.ReadGroupRequest) (reads.GroupResultSet, error) {
@@ -161,7 +181,7 @@ func (s *store) GetSource(orgID, bucketID uint64) proto.Message {
 }
 
 func (s *store) GetWindowAggregateCapability(ctx context.Context) reads.WindowAggregateCapability {
-	return s.cap
+	return s.windowCap
 }
 
 // WindowAggregate will invoke a ReadWindowAggregateRequest against the Store.
@@ -188,16 +208,38 @@ func (s *store) WindowAggregate(ctx context.Context, req *datatypes.ReadWindowAg
 	return reads.NewWindowAggregateResultSet(ctx, req, cur)
 }
 
-type WindowAggregateCapability struct {
-	Min   bool
-	Max   bool
-	Mean  bool
+type GroupCapability struct {
 	Count bool
 	Sum   bool
+	First bool
+	Last  bool
+	Min   bool
+	Max   bool
 }
 
-func (w WindowAggregateCapability) HaveMin() bool   { return w.Min }
-func (w WindowAggregateCapability) HaveMax() bool   { return w.Max }
-func (w WindowAggregateCapability) HaveMean() bool  { return w.Mean }
-func (w WindowAggregateCapability) HaveCount() bool { return w.Count }
-func (w WindowAggregateCapability) HaveSum() bool   { return w.Sum }
+func (c GroupCapability) HaveCount() bool { return c.Count }
+func (c GroupCapability) HaveSum() bool   { return c.Sum }
+func (c GroupCapability) HaveFirst() bool { return c.First }
+func (c GroupCapability) HaveLast() bool  { return c.Last }
+func (c GroupCapability) HaveMin() bool   { return c.Min }
+func (c GroupCapability) HaveMax() bool   { return c.Max }
+
+type WindowAggregateCapability struct {
+	Min    bool
+	Max    bool
+	Mean   bool
+	Count  bool
+	Sum    bool
+	First  bool
+	Last   bool
+	Offset bool
+}
+
+func (w WindowAggregateCapability) HaveMin() bool    { return w.Min }
+func (w WindowAggregateCapability) HaveMax() bool    { return w.Max }
+func (w WindowAggregateCapability) HaveMean() bool   { return w.Mean }
+func (w WindowAggregateCapability) HaveCount() bool  { return w.Count }
+func (w WindowAggregateCapability) HaveSum() bool    { return w.Sum }
+func (w WindowAggregateCapability) HaveFirst() bool  { return w.First }
+func (w WindowAggregateCapability) HaveLast() bool   { return w.Last }
+func (w WindowAggregateCapability) HaveOffset() bool { return w.Offset }

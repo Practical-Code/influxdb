@@ -1,7 +1,7 @@
 // Libraries
 import React, {PureComponent, MouseEvent} from 'react'
-import {connect} from 'react-redux'
-import {withRouter, WithRouterProps} from 'react-router'
+import {connect, ConnectedProps} from 'react-redux'
+import {withRouter, RouteComponentProps} from 'react-router-dom'
 
 // Components
 import {
@@ -19,11 +19,7 @@ import InlineLabels from 'src/shared/components/inlineLabels/InlineLabels'
 import LastRunTaskStatus from 'src/shared/components/lastRunTaskStatus/LastRunTaskStatus'
 
 // Actions
-import {
-  addTaskLabel,
-  deleteTaskLabel,
-  selectTask,
-} from 'src/tasks/actions/thunks'
+import {addTaskLabel, deleteTaskLabel} from 'src/tasks/actions/thunks'
 
 // Types
 import {ComponentColor} from '@influxdata/clockface'
@@ -36,21 +32,18 @@ interface PassedProps {
   task: Task
   onActivate: (task: Task) => void
   onDelete: (task: Task) => void
-  onSelect: typeof selectTask
   onClone: (task: Task) => void
   onRunTask: (taskID: string) => void
   onUpdate: (name: string, taskID: string) => void
   onFilterChange: (searchTerm: string) => void
 }
 
-interface DispatchProps {
-  onAddTaskLabel: typeof addTaskLabel
-  onDeleteTaskLabel: typeof deleteTaskLabel
-}
+type ReduxProps = ConnectedProps<typeof connector>
+type Props = PassedProps & ReduxProps
 
-type Props = PassedProps & DispatchProps
-
-export class TaskCard extends PureComponent<Props & WithRouterProps> {
+export class TaskCard extends PureComponent<
+  Props & RouteComponentProps<{orgID: string}>
+> {
   public render() {
     const {task} = this.props
 
@@ -139,19 +132,32 @@ export class TaskCard extends PureComponent<Props & WithRouterProps> {
     )
   }
 
-  private handleNameClick = (e: MouseEvent) => {
-    e.preventDefault()
+  private handleNameClick = (event: MouseEvent) => {
+    const {
+      match: {
+        params: {orgID},
+      },
+      history,
+      task,
+    } = this.props
+    const url = `/orgs/${orgID}/tasks/${task.id}/edit`
 
-    this.props.onSelect(this.props.task.id)
+    if (event.metaKey) {
+      window.open(url, '_blank')
+    } else {
+      history.push(url)
+    }
   }
 
   private handleViewRuns = () => {
     const {
-      router,
+      history,
       task,
-      params: {orgID},
+      match: {
+        params: {orgID},
+      },
     } = this.props
-    router.push(`/orgs/${orgID}/tasks/${task.id}/runs`)
+    history.push(`/orgs/${orgID}/tasks/${task.id}/runs`)
   }
 
   private handleRenameTask = (name: string) => {
@@ -164,11 +170,11 @@ export class TaskCard extends PureComponent<Props & WithRouterProps> {
 
   private handleExport = () => {
     const {
-      router,
+      history,
       task,
       location: {pathname},
     } = this.props
-    router.push(`${pathname}/${task.id}/export`)
+    history.push(`${pathname}/${task.id}/export`)
   }
 
   private get labels(): JSX.Element {
@@ -229,12 +235,11 @@ export class TaskCard extends PureComponent<Props & WithRouterProps> {
   }
 }
 
-const mdtp: DispatchProps = {
+const mdtp = {
   onAddTaskLabel: addTaskLabel,
   onDeleteTaskLabel: deleteTaskLabel,
 }
 
-export default connect<{}, DispatchProps, PassedProps>(
-  null,
-  mdtp
-)(withRouter<Props>(TaskCard))
+const connector = connect(null, mdtp)
+
+export default connector(withRouter(TaskCard))

@@ -9,14 +9,16 @@ import {getVariables, asAssignment} from 'src/variables/selectors'
 import {getOrg} from 'src/organizations/selectors'
 import {NotebookContext} from 'src/notebooks/context/notebook'
 import {TimeContext} from 'src/notebooks/context/time'
-import {fromFlux as parse, FromFluxResult} from '@influxdata/giraffe'
+import {fromFlux as parse} from '@influxdata/giraffe'
+import {event} from 'src/cloud/utils/reporting'
+import {FluxResult} from 'src/notebooks'
 
 export interface QueryContextType {
-  query: (text: string) => Promise<FromFluxResult>
+  query: (text: string) => Promise<FluxResult>
 }
 
 export const DEFAULT_CONTEXT: QueryContextType = {
-  query: () => Promise.resolve({} as FromFluxResult),
+  query: () => Promise.resolve({} as FluxResult),
 }
 
 export const QueryContext = React.createContext<QueryContextType>(
@@ -38,17 +40,22 @@ export const QueryProvider: FC<Props> = ({children, variables, org}) => {
     const windowVars = getWindowVars(text, vars)
     const extern = buildVarsOption([...vars, ...windowVars])
 
+    event('runQuery', {context: 'notebooks'})
     return runQuery(org.id, text, extern)
       .promise.then(raw => {
         if (raw.type !== 'SUCCESS') {
-          // TODO actually pipe this somewhere
-          throw new Error('Unable to fetch results')
+          throw new Error(raw.message)
         }
 
         return raw
       })
       .then(raw => {
-        return parse(raw.csv)
+        return {
+          source: text,
+          raw: raw.csv,
+          parsed: parse(raw.csv),
+          error: null,
+        }
       })
   }
 
@@ -66,7 +73,7 @@ interface StateProps {
   org: Organization
 }
 
-const mstp = (state: AppState): StateProps => {
+const mstp = (state: AppState) => {
   const variables = getVariables(state)
   const org = getOrg(state)
 

@@ -171,7 +171,7 @@ export const checkResultsLength = (giraffeResult: FromFluxResult): boolean => {
 }
 
 export const getNumericColumns = (table: Table): string[] => {
-  const numericColumnKeys = table.columnKeys.filter(k => {
+  const timeColumns = table.columnKeys.filter(k => {
     if (k === 'result' || k === 'table') {
       return false
     }
@@ -181,7 +181,33 @@ export const getNumericColumns = (table: Table): string[] => {
     return columnType === 'time' || columnType === 'number'
   })
 
-  return numericColumnKeys
+  return timeColumns
+}
+
+export const getTimeColumns = (table: Table): string[] => {
+  const timeColumns = table.columnKeys.filter(k => {
+    if (k === 'result' || k === 'table') {
+      return false
+    }
+
+    const columnType = table.getColumnType(k)
+    return columnType === 'time'
+  })
+
+  return timeColumns
+}
+
+export const getNumberColumns = (table: Table): string[] => {
+  const numberColumnKeys = table.columnKeys.filter(k => {
+    if (k === 'result' || k === 'table') {
+      return false
+    }
+
+    const columnType = table.getColumnType(k)
+    return columnType === 'number'
+  })
+
+  return numberColumnKeys
 }
 
 export const getGroupableColumns = (table: Table): string[] => {
@@ -213,12 +239,10 @@ export const defaultXColumn = (
   table: Table,
   preferredColumnKey?: string
 ): string | null => {
-  const validColumnKeys = getNumericColumns(table)
-
+  const validColumnKeys = [...getTimeColumns(table), ...getNumberColumns(table)]
   if (validColumnKeys.includes(preferredColumnKey)) {
     return preferredColumnKey
   }
-
   for (const key of ['_time', '_stop', '_start']) {
     if (validColumnKeys.includes(key)) {
       return key
@@ -239,7 +263,7 @@ export const defaultYColumn = (
   table: Table,
   preferredColumnKey?: string
 ): string | null => {
-  const validColumnKeys = getNumericColumns(table)
+  const validColumnKeys = [...getTimeColumns(table), ...getNumberColumns(table)]
 
   if (validColumnKeys.includes(preferredColumnKey)) {
     return preferredColumnKey

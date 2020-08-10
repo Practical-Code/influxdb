@@ -10,7 +10,7 @@ const adminPermissions = ['authorizations',
     'sources',
     'tasks',
     'telegrafs',
-    'users',
+    'users-admin',
     'variables',
     'scrapers',
     'secrets',
@@ -206,6 +206,14 @@ class tokensSteps extends baseSteps{
                 expect(descrText).to.equal(listArr[i]);
             });
         }
+    }
+
+    async clickTokensSorterButton(){
+        await this.clickAndWait(await this.tknTab.getTokenSorterButton());
+    }
+
+    async clickTokensSorterItem(item){
+        await this.clickAndWait(await this.tknTab.getTokenSorterItem(item));
     }
 
     async clickTokensSortByName(){

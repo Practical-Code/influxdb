@@ -20,10 +20,10 @@ import (
 	"github.com/influxdata/flux/csv"
 	"github.com/influxdata/flux/lang"
 	"github.com/influxdata/influxdb/v2"
-	platform "github.com/influxdata/influxdb/v2"
 	icontext "github.com/influxdata/influxdb/v2/context"
 	"github.com/influxdata/influxdb/v2/http/metric"
 	"github.com/influxdata/influxdb/v2/kit/check"
+	"github.com/influxdata/influxdb/v2/kit/feature"
 	tracetesting "github.com/influxdata/influxdb/v2/kit/tracing/testing"
 	kithttp "github.com/influxdata/influxdb/v2/kit/transport/http"
 	influxmock "github.com/influxdata/influxdb/v2/mock"
@@ -341,6 +341,7 @@ func TestFluxHandler_PostQuery_Errors(t *testing.T) {
 			},
 		},
 		FluxLanguageService: fluxlang.DefaultService,
+		Flagger:             feature.DefaultFlagger(),
 	}
 	h := NewFluxHandler(zaptest.NewLogger(t), b)
 
@@ -501,6 +502,7 @@ func TestFluxService_Query_gzip(t *testing.T) {
 		OrganizationService: orgService,
 		ProxyQueryService:   queryService,
 		FluxLanguageService: fluxlang.DefaultService,
+		Flagger:             feature.DefaultFlagger(),
 	}
 
 	fluxHandler := NewFluxHandler(zaptest.NewLogger(t), fluxBackend)
@@ -512,7 +514,7 @@ func TestFluxService_Query_gzip(t *testing.T) {
 	auth.AuthorizationService = authService
 	auth.Handler = fluxHandler
 	auth.UserService = &influxmock.UserService{
-		FindUserByIDFn: func(ctx context.Context, id platform.ID) (*influxdb.User, error) {
+		FindUserByIDFn: func(ctx context.Context, id influxdb.ID) (*influxdb.User, error) {
 			return &influxdb.User{}, nil
 		},
 	}
@@ -638,6 +640,7 @@ func benchmarkQuery(b *testing.B, disableCompression bool) {
 		OrganizationService: orgService,
 		ProxyQueryService:   queryService,
 		FluxLanguageService: fluxlang.DefaultService,
+		Flagger:             feature.DefaultFlagger(),
 	}
 
 	fluxHandler := NewFluxHandler(zaptest.NewLogger(b), fluxBackend)

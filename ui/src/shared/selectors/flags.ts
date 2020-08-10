@@ -11,8 +11,11 @@ export const OSS_FLAGS = {
   fluxParser: false,
   matchingNotificationRules: false,
   notebooks: false,
-  redirectToCloud: false,
   telegrafEditor: false,
+  streamEvents: false,
+  'notebook-panel--spotify': false,
+  'notebook-panel--test-flux': false,
+  disableDefaultTableSort: false,
 }
 
 export const CLOUD_FLAGS = {
@@ -25,8 +28,11 @@ export const CLOUD_FLAGS = {
   fluxParser: false,
   matchingNotificationRules: false,
   notebooks: false,
-  redirectToCloud: false,
   telegrafEditor: false,
+  streamEvents: false,
+  'notebook-panel--spotify': false,
+  'notebook-panel--test-flux': false,
+  disableDefaultTableSort: false,
 }
 
 export const activeFlags = (state: AppState): FlagMap => {
